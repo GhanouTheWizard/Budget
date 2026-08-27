@@ -1,4 +1,4 @@
-const CACHE = "releve-v2";
+const CACHE = "releve-v3";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-512.png"];
 
 self.addEventListener("install", e => {
