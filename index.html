@@ -359,13 +359,20 @@ function accountBalance(id){
   return t;
 }
 
+function monthHasData(ym){
+  const M=S.months[ym]; if(!M) return false;
+  return (M.incomes||[]).length || (M.fixed||[]).length || (M.expenses||[]).length
+      || (M.moves||[]).length || (M.refunds||[]).length || (M.transfers||[]).length;
+}
 function prevSoldes(ym){
   const prev=ymShift(ym,-1);
-  if(!S.months[prev]) return null;
-  const out={}; let any=false;
-  S.wallets.forEach(w=>{ const v=stats(prev,w.id).libre; out[w.id]=v; if(Math.abs(v)>0.005) any=true; });
-  return {prev,out,any};
+  if(!monthHasData(prev)) return null;
+  const out={};
+  S.wallets.forEach(w=>{ out[w.id]=stats(prev,w.id).libre; });
+  return {prev,out};
 }
+function carryWord(){ return prevSoldes(cur) ? "Report du mois précédent" : "Solde de départ"; }
+function carrySet(){ const c=month(cur).carry||{}; return S.wallets.some(w=>c[w.id]!=null); }
 function isWeekendBlind(){ const d=new Date().getDay(); return d===5||d===6||d===0||d===1; }
 
 /* ---------- rendu ---------- */
@@ -459,7 +466,7 @@ function vReleve(){
       <div class="big ${st.reste<0?"neg":"teal"}">${eur(st.reste)}</div>
     </div>
     <div class="calc">
-      ${st.carry?`<div class="l tap" onclick="go('comptes')"><span class="n">Report du mois précédent<small>ce qui restait sur les comptes</small></span><span class="a ${st.carry<0?"minus":"plus"}">${st.carry<0?"−":"+"}${eur(Math.abs(st.carry))}</span></div>`:``}
+      ${st.carry?`<div class="l tap" onclick="go('comptes')"><span class="n">${carryWord()}<small>ce qu'il y avait sur les comptes au départ</small></span><span class="a ${st.carry<0?"minus":"plus"}">${st.carry<0?"−":"+"}${eur(Math.abs(st.carry))}</span></div>`:``}
       <div class="l"><span class="n">Ressources<small>${st.nInc} ligne${st.nInc>1?"s":""} · ${st.inGot<st.inTot?eur0(st.inTot-st.inGot)+" à recevoir":"tout est arrivé"}</small></span><span class="a plus">${eur(st.inTot)}</span></div>
       ${st.extra?`<div class="l tap" onclick="go('ressources')"><span class="n">Recettes exceptionnelles<small>primes, ventes, aides</small></span><span class="a plus">+${eur(st.extra)}</span></div>`:``}
       <div class="l"><span class="n">Dépenses récurrentes<small>${st.nFix} prélèvement${st.nFix>1?"s":""} · ${st.fixDue>0?eur0(st.fixDue)+" à venir":"tout est passé"}</small></span><span class="a minus">−${eur(st.fixTot)}</span></div>
@@ -475,10 +482,19 @@ function vReleve(){
     ${st.reste<0?`<div class="hint">Le mois ne se boucle pas seul. Réduis la réserve, ou puise dans l'épargne depuis l'onglet Épargne si c'est un cas de force majeure.</div>`:``}
   </div>
 
-  ${st.weekly>0||st.courses>0?`
+  ${st.weekly<=0?`
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Provision ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
-      <button class="act" onclick="editGrocery()">${st.weekly>0?eur0(st.weekly)+" / semaine":"Définir"}</button></div>
+      <button class="act" onclick="editGrocery()">Définir</button></div>
+    <div class="empty" style="text-align:left;padding:2px 0 12px">
+      <b>Budget hebdomadaire non fixé.</b>
+      Indique ce que vous prévoyez de dépenser en ${esc((S.groceryCat||"courses").toLowerCase())} chaque semaine. La somme est mise à l'abri comme la réserve, le mois est découpé en semaines, et les semaines où vous dépensez moins l'écart vous est proposé au versement sur l'épargne.
+    </div>
+    <button class="btn sm" onclick="editGrocery()">Fixer le budget par semaine</button>
+  </div>` : `
+  <div class="card">
+    <div class="sec-title"><span class="eyebrow">Provision ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
+      <button class="act" onclick="editGrocery()">${eur0(st.weekly)} / semaine</button></div>
     <div class="bigline">
       <div class="big sm ${st.overGro>0?"neg":""}">${eur(st.provLeft)}</div>
       <div class="perday"><div class="v">${eur0(st.coursesNet)}</div><div class="l">dépensés</div></div>
@@ -494,7 +510,7 @@ function vReleve(){
     ${releasable>0?`<button class="btn teal sm" style="margin-top:12px" onclick="releaseGrocery(${releasable.toFixed(2)})">Libérer ${eur0(releasable)} vers l'épargne</button>`:``}
     ${st.released>0?`<div class="hint">${eur0(st.released)} déjà libérés ce mois. <button class="act" style="color:var(--indigo)" onclick="resetRelease()">Annuler</button></div>`:``}
     ${releasable<=0&&!st.released?`<div class="hint">Quand une semaine coûte moins que prévu, l'écart apparaît ici et le bouton te propose de le basculer vers l'épargne.</div>`:``}
-  </div>`:``}
+  </div>`}
 
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Réserve loisirs et imprévus</span>
@@ -630,15 +646,16 @@ function vComptes(){
   return picker+`
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Solde du compte</span>
-      <button class="act" onclick="editCarry('${w}')">${st.carry?"Report "+eur0(st.carry):"Saisir le report"}</button></div>
+      <button class="act" onclick="editCarry('${w}')">${(month(cur).carry||{})[w]!=null?carryWord().split(" ")[0]+" "+eur0(st.carry):"Saisir le solde"}</button></div>
     <div class="bigline">
       <div class="big sm ${st.libre<0?"neg":""}">${eur(st.libre)}</div>
       ${st.nWait?`<div class="perday"><div class="v">${eur0(st.soldeApres)}</div><div class="l">après pointage</div></div>`:``}
     </div>
     ${st.nWait?`<div class="hint" style="margin-top:0;margin-bottom:10px">La banque affiche ${eur0(st.soldeBanque)}. ${st.nWait} opération${st.nWait>1?"s":""} pour ${eur0(st.attente)} n'${st.nWait>1?"y sont":"y est"} pas encore, il restera donc ${eur0(st.soldeApres)}.</div>`:``}
-    ${pv&&!st.carry?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="carryFromPrev()">Reprendre les soldes de ${MONTHS[ymParts(pv.prev).m-1]}</button>`:``}
+    ${pv&&(month(cur).carry||{})[w]==null?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="carryFromPrev()">Reprendre les soldes de ${MONTHS[ymParts(pv.prev).m-1]}</button>`:``}
+    ${!pv&&(month(cur).carry||{})[w]==null?`<div class="banner" style="margin-bottom:12px">Aucun mois précédent renseigné. Saisis le solde de ce compte tel qu'il était la veille du 1er du mois, avant l'arrivée des salaires et des prélèvements. Bouton <b>Saisir le solde</b> en haut à droite.</div>`:``}
     <div class="calc">
-      ${st.carry?`<div class="l"><span class="n">Report du mois précédent</span><span class="a ${st.carry<0?"minus":"plus"}">${st.carry<0?"−":"+"}${eur(Math.abs(st.carry))}</span></div>`:``}
+      ${st.carry?`<div class="l"><span class="n">${carryWord()}</span><span class="a ${st.carry<0?"minus":"plus"}">${st.carry<0?"−":"+"}${eur(Math.abs(st.carry))}</span></div>`:``}
       <div class="l"><span class="n">Ressources versées ici</span><span class="a plus">${eur(st.inTot)}</span></div>
       ${(st.extra||st.refundTot)?`<div class="l"><span class="n">Rentrées en cours de mois<small>${st.refundTot?eur0(st.refundTot)+" de remboursements":""}${st.refundTot&&st.extra?" · ":""}${st.extra?eur0(st.extra)+" de recettes":""}</small></span><span class="a plus">+${eur(st.extra+st.refundTot)}</span></div>`:``}
       ${(st.trIn||st.trOut)?`<div class="l"><span class="n">Virements internes<small>reçus ${eur0(st.trIn)} · envoyés ${eur0(st.trOut)}</small></span><span class="a ${(st.trIn-st.trOut)<0?"minus":"plus"}">${(st.trIn-st.trOut)>=0?"+":"−"}${eur(Math.abs(st.trIn-st.trOut))}</span></div>`:``}
@@ -816,12 +833,16 @@ function vReglages(){
   </div>
 
   <div class="card">
-    <div class="sec-title"><span class="eyebrow">Report des soldes</span><button class="act" onclick="carryFromPrev()">Reprendre</button></div>
+    <div class="sec-title"><span class="eyebrow">${carryWord()}</span>
+      ${prevSoldes(cur)?`<button class="act" onclick="carryFromPrev()">Reprendre</button>`:``}</div>
     ${S.wallets.map(w=>`<div class="row" onclick="editCarry('${w.id}')">
       <span class="dot" style="background:${wColor(w.id)}"></span>
-      <div class="body"><div class="t">${esc(w.name)}</div><div class="s">report du mois précédent</div></div>
-      <div class="amt" style="color:${((month(cur).carry||{})[w.id]||0)<0?"var(--alert)":"inherit"}">${eur((month(cur).carry||{})[w.id]||0)}</div></div>`).join("")}
-    <div class="hint">Saisis ici ce qui restait réellement sur chaque compte en fin de mois dernier, ou laisse l'app le calculer avec Reprendre. Les montants négatifs sont acceptés.</div>
+      <div class="body"><div class="t">${esc(w.name)}</div>
+        <div class="s">${(month(cur).carry||{})[w.id]!=null?"saisi":"non renseigné"}</div></div>
+      <div class="amt" style="color:${((month(cur).carry||{})[w.id]||0)<0?"var(--alert)":"inherit"}">${(month(cur).carry||{})[w.id]!=null?eur(month(cur).carry[w.id]):"—"}</div></div>`).join("")}
+    <div class="hint">${prevSoldes(cur)
+      ? "Reprendre calcule automatiquement les soldes de fin du mois précédent. Tu peux corriger chaque ligne à la main si la banque affiche autre chose."
+      : "Premier mois suivi : saisis le solde réel de chaque compte tel qu'il était la veille du 1er du mois. Les montants négatifs sont acceptés."}</div>
   </div>
 
   <div class="card">
@@ -910,13 +931,15 @@ function toggleSeen(id){
 function editCarry(wid){
   const M=month(cur); M.carry=M.carry||{};
   const wn=wName(wid), pv=prevSoldes(cur);
-  openSheet("Report sur "+wn,
-    `Ce qui restait sur ce compte à la fin du mois précédent. Un montant négatif est accepté si le mois s'est terminé à découvert.${pv?`<br>Calculé par l'app pour ${MONTHS[ymParts(pv.prev).m-1]} : <b class="num">${eur(pv.out[wid]||0)}</b>.`:""}`,
-    [{k:"amount",label:"Montant du report",type:"money",ph:"0,00"}],
+  openSheet(carryWord()+" · "+wn,
+    pv
+      ? `Ce qui restait sur ce compte à la fin de ${MONTHS[ymParts(pv.prev).m-1]}. Calculé par l'app : <b class="num">${eur(pv.out[wid]||0)}</b>. Corrige si ta banque affiche autre chose. Un montant négatif est accepté.`
+      : `Solde réel de ce compte la veille du 1er du mois, avant l'arrivée des salaires et des prélèvements du mois. Un montant négatif est accepté si tu étais à découvert.`,
+    [{k:"amount",label:"Montant",type:"money",ph:"0,00"}],
     {amount: (M.carry[wid]!=null&&M.carry[wid]!==0)?M.carry[wid]:""},
     d=>{ const v=String(d.amount).trim();
       if(v==="") delete M.carry[wid]; else M.carry[wid]=num(v);
-      toast(`Report de ${eur0(M.carry[wid]||0)} sur ${esc(wn)}`); });
+      toast(`${esc(wn)} : ${eur0(M.carry[wid]||0)} au départ<br>Reste à mettre de côté ${eur0(stats(cur).reste)}`); });
 }
 
 function carryFromPrev(){
