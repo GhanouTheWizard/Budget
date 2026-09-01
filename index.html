@@ -225,7 +225,7 @@ function blank(){
     ],
     defaultReserve: 0,
     groceryCat: "Courses",
-    groceryWeekly: 0,
+    groceryMonthly: 0,
     incomeTemplate: [], fixedTemplate: [], transferTemplate: [],
     accounts: [], months: {}
   };
@@ -248,7 +248,7 @@ function persist(){ clearTimeout(saveT); saveT=setTimeout(()=>Store.save(S),180)
 function month(ym){
   if(!S.months[ym]){
     S.months[ym] = {
-      reserve:null, groceryWeekly:null, groceryReleased:0, carry:{},
+      reserve:null, groceryMonthly:null, groceryReleased:0, carry:{},
       refunds:[],
       incomes:   S.incomeTemplate.map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,wallet:t.wallet||W0(),got:false})),
       fixed:     S.fixedTemplate.map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,category:t.category,wallet:t.wallet||W0(),paid:false})),
@@ -269,21 +269,26 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;"
 
 /* ---------- calculs ---------- */
 function reserveOf(ym){ const M=month(ym); return M.reserve!=null ? +M.reserve : (+S.defaultReserve||0); }
-function weeklyOf(ym){ const M=month(ym); return M.groceryWeekly!=null ? +M.groceryWeekly : (+S.groceryWeekly||0); }
+function monthlyOf(ym){ const M=month(ym); return M.groceryMonthly!=null ? +M.groceryMonthly : (+S.groceryMonthly||0); }
 function isGro(x){ return (x.category||"")===(S.groceryCat||"Courses"); }
 
 function weekBlocks(ym){
-  const dim=daysIn(ym), wkly=weeklyOf(ym), M=month(ym);
+  const dim=daysIn(ym), mtot=monthlyOf(ym), M=month(ym);
   const out=[]; let d=1, n=1;
   while(d<=dim){
     const to=Math.min(d+6,dim), days=to-d+1;
-    const spent=M.expenses.filter(x=>isGro(x)&&x.day>=d&&x.day<=to).reduce((a,x)=>a+(+x.amount||0),0)
-              - (M.refunds||[]).filter(x=>x.kind==="refund"&&isGro(x)&&x.day>=d&&x.day<=to).reduce((a,x)=>a+(+x.amount||0),0);
-    out.push({n,from:d,to,days,budget:wkly*days/7,spent,ecart:wkly*days/7-spent});
+    const inRange = x => x.day>=d && x.day<=to;
+    const hebdo = M.expenses.find(x=>x.gw===n);
+    const spent = M.expenses.filter(x=>isGro(x)&&inRange(x)).reduce((a,x)=>a+(+x.amount||0),0)
+                - (M.refunds||[]).filter(x=>x.kind==="refund"&&isGro(x)&&inRange(x)).reduce((a,x)=>a+(+x.amount||0),0);
+    const budget = mtot*days/dim;
+    out.push({n,from:d,to,days,budget,spent,ecart:budget-spent,
+              hebdo: hebdo?(+hebdo.amount||0):null, autres: spent-(hebdo?(+hebdo.amount||0):0)});
     d=to+1; n++;
   }
   return out;
 }
+function weekOfDay(ym,day){ return Math.floor((day-1)/7)+1; }
 
 function stats(ym, w){
   const M = month(ym);
@@ -324,8 +329,9 @@ function stats(ym, w){
   const attente     = expWait - rfWait;
   const soldeApres  = soldeBanque - attente;
 
-  const weekly     = w ? 0 : weeklyOf(ym);
-  const provision  = w ? 0 : weekly*daysIn(ym)/7;
+  const monthly    = w ? 0 : monthlyOf(ym);
+  const weekly     = w ? 0 : monthly*7/daysIn(ym);
+  const provision  = w ? 0 : monthly;
   const released   = w ? 0 : (+M.groceryReleased||0);
   const provLeft   = Math.max(0, provision - released - coursesNet);
   const provUsed   = Math.min(Math.max(0,provision-released), Math.max(0,coursesNet));
@@ -343,7 +349,7 @@ function stats(ym, w){
 
   return {carry,soldeBanque,soldeApres,attente,enAttente,expWait,rfWait,nWait,inTot,inGot,fixTot,fixPaid,fixDue:fixTot-fixPaid,occas,trIn,trOut,savIn,savOut,savNet,
           extra,refundG,refundO,refundTot:refundG+refundO,courses,coursesNet,autres,autresNet,
-          weekly,provision,released,provLeft,provUsed,overGro,
+          monthly,weekly,provision,released,provLeft,provUsed,overGro,
           capacite,reserve,reserveLeft,reserveUsed,overRes,epargnePos,reste,libre,
           nExp:allExp.length,nAut:allExp.filter(x=>!isGro(x)).length,nGro:allExp.filter(isGro).length,
           nInc:F(M.incomes).length,nFix:F(M.fixed).length,nRf:rf.length};
@@ -472,7 +478,7 @@ function vReleve(){
       <div class="l"><span class="n">Dépenses récurrentes<small>${st.nFix} prélèvement${st.nFix>1?"s":""} · ${st.fixDue>0?eur0(st.fixDue)+" à venir":"tout est passé"}</small></span><span class="a minus">−${eur(st.fixTot)}</span></div>
       <div class="l"><span class="n">${esc(S.groceryCat||"Courses")}<small>${st.nGro} saisie${st.nGro>1?"s":""} · ${eur0(st.courses)} dépensés${st.refundG?" · "+eur0(st.refundG)+" remboursés":""}</small></span><span class="a minus">−${eur(st.coursesNet)}</span></div>
       <div class="l"><span class="n">Autres dépenses occasionnelles<small>${st.nAut} saisie${st.nAut>1?"s":""}${st.refundO?" · "+eur0(st.refundO)+" remboursés":""}</small></span><span class="a minus">−${eur(st.autresNet)}</span></div>
-      <div class="l mid tap" onclick="editGrocery()"><span class="n">Provision ${esc((S.groceryCat||"Courses").toLowerCase())} restante<small>${st.weekly>0?eur0(st.weekly)+" par semaine · toucher pour modifier":"non fixée · toucher pour la définir"}</small></span><span class="a minus">−${eur(st.provLeft)}</span></div>
+      <div class="l mid tap" onclick="editGrocery()"><span class="n">Enveloppe ${esc((S.groceryCat||"Courses").toLowerCase())} restante<small>${st.monthly>0?eur0(st.coursesNet)+" dépensés sur "+eur0(st.provision-st.released)+" · toucher pour modifier":"non fixée · toucher pour la définir"}</small></span><span class="a minus">−${eur(st.provLeft)}</span></div>
       <div class="l mid tap" onclick="editReserve()"><span class="n">Réserve loisirs et imprévus<small>${st.reserve>0?eur0(st.reserveLeft)+" encore protégés · toucher pour modifier":"non fixée · toucher pour la définir"}</small></span><span class="a minus">−${eur(st.reserveLeft)}</span></div>
       <div class="l"><span class="n">Déjà versé à l'épargne</span><span class="a">${st.savNet?"−"+eur(st.savNet):eur(0)}</span></div>
       <div class="l res"><span class="n">Reste à mettre de côté</span><span class="a ${st.reste<0?"minus":"plus"}">${eur(st.reste)}</span></div>
@@ -484,32 +490,38 @@ function vReleve(){
 
   ${st.weekly<=0?`
   <div class="card">
-    <div class="sec-title"><span class="eyebrow">Provision ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
+    <div class="sec-title"><span class="eyebrow">Enveloppe ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
       <button class="act" onclick="editGrocery()">Définir</button></div>
     <div class="empty" style="text-align:left;padding:2px 0 12px">
-      <b>Budget hebdomadaire non fixé.</b>
-      Indique ce que vous prévoyez de dépenser en ${esc((S.groceryCat||"courses").toLowerCase())} chaque semaine. La somme est mise à l'abri comme la réserve, le mois est découpé en semaines, et les semaines où vous dépensez moins l'écart vous est proposé au versement sur l'épargne.
+      <b>Enveloppe du mois non fixée.</b>
+      Indique le budget ${esc((S.groceryCat||"courses").toLowerCase())} pour le mois entier. L'app le répartit sur les semaines, tu saisis ensuite ce que tu as réellement dépensé après chaque course, et elle te dit ce qu'il reste dans l'enveloppe.
     </div>
-    <button class="btn sm" onclick="editGrocery()">Fixer le budget par semaine</button>
+    <button class="btn sm" onclick="editGrocery()">Fixer l'enveloppe du mois</button>
   </div>` : `
   <div class="card">
-    <div class="sec-title"><span class="eyebrow">Provision ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
-      <button class="act" onclick="editGrocery()">${eur0(st.weekly)} / semaine</button></div>
+    <div class="sec-title"><span class="eyebrow">Enveloppe ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
+      <button class="act" onclick="editGrocery()">${eur0(st.monthly)} pour le mois</button></div>
     <div class="bigline">
       <div class="big sm ${st.overGro>0?"neg":""}">${eur(st.provLeft)}</div>
-      <div class="perday"><div class="v">${eur0(st.coursesNet)}</div><div class="l">dépensés</div></div>
+      <div class="perday"><div class="v">${eur0(st.coursesNet)} / ${eur0(st.provision-st.released)}</div><div class="l">dépensés</div></div>
     </div>
     <div class="scale" style="height:22px">
       <div class="track"><div class="seg-a" data-fill="${st.provision>0?Math.min(100,(st.coursesNet/st.provision)*100):0}" data-state="${st.overGro>0?"over":(st.provision>0&&st.coursesNet/st.provision>=.8)?"warn":"none"}"></div></div>
     </div>
     <div class="calc" style="margin-top:10px">
-      ${wk.map(x=>`<div class="l"><span class="n">Semaine ${x.n}<small>du ${x.from} au ${x.to}${x.days<7?" · "+x.days+" jours":""}${x.to>dayNo?" · en cours ou à venir":""}</small></span>
-        <span class="a" style="text-align:right">${eur(x.spent)}<br><small style="font-weight:500;color:${x.ecart>=0?"var(--teal)":"var(--alert)"}">${x.to>dayNo?"prévu "+eur0(x.budget):(x.ecart>=0?"+"+eur0(x.ecart)+" économisés":eur0(-x.ecart)+" de trop")}</small></span></div>`).join("")}
-      <div class="l res"><span class="n">Écart sur les semaines écoulées</span><span class="a ${economy>=0?"plus":"minus"}">${economy>=0?"+":"−"}${eur(Math.abs(economy))}</span></div>
+      ${wk.map(x=>{
+        const futur = x.from>dayNo, encours = x.from<=dayNo && x.to>dayNo, vide = x.spent===0 && x.hebdo===null;
+        return `<div class="l tap" onclick="editWeek(${x.n})">
+          <span class="n">Semaine ${x.n}<small>du ${x.from} au ${x.to}${x.days<7?" · "+x.days+" jours":""} · budget ${eur0(x.budget)}${encours?" · en cours":futur?" · à venir":""}</small></span>
+          <span class="a" style="text-align:right">${vide?`<span style="color:var(--indigo);font-weight:600">saisir</span>`:eur(x.spent)}
+          ${vide?"":`<br><small style="font-weight:500;color:${x.ecart>=0?"var(--teal)":"var(--alert)"}">${x.ecart>=0?"+"+eur0(x.ecart)+" gardés":eur0(-x.ecart)+" de trop"}</small>`}</span></div>`;
+      }).join("")}
+      <div class="l res"><span class="n">Dépensé sur l'enveloppe</span><span class="a">${eur(st.coursesNet)} / ${eur(st.provision-st.released)}</span></div>
+      <div class="l" style="border-top:0;padding-top:2px"><span class="n">Écart sur les semaines terminées</span><span class="a ${economy>=0?"plus":"minus"}">${economy>=0?"+":"−"}${eur(Math.abs(economy))}</span></div>
     </div>
     ${releasable>0?`<button class="btn teal sm" style="margin-top:12px" onclick="releaseGrocery(${releasable.toFixed(2)})">Libérer ${eur0(releasable)} vers l'épargne</button>`:``}
     ${st.released>0?`<div class="hint">${eur0(st.released)} déjà libérés ce mois. <button class="act" style="color:var(--indigo)" onclick="resetRelease()">Annuler</button></div>`:``}
-    ${releasable<=0&&!st.released?`<div class="hint">Quand une semaine coûte moins que prévu, l'écart apparaît ici et le bouton te propose de le basculer vers l'épargne.</div>`:``}
+    ${releasable<=0&&!st.released?`<div class="hint">Touche une semaine pour saisir ce que tu as dépensé. Quand une semaine coûte moins que son budget, l'écart apparaît ici et un bouton te propose de le basculer vers l'épargne.</div>`:``}
   </div>`}
 
   <div class="card">
@@ -742,7 +754,7 @@ function vEpargne(){
       <div class="l"><span class="n">Dépenses récurrentes</span><span class="a minus">−${eur(st.fixTot)}</span></div>
       ${st.extra?`<div class="l"><span class="n">Recettes exceptionnelles</span><span class="a plus">+${eur(st.extra)}</span></div>`:``}
       <div class="l"><span class="n">Dépenses occasionnelles<small>nettes de ${eur0(st.refundTot)} de remboursements</small></span><span class="a minus">−${eur(st.occas)}</span></div>
-      <div class="l mid"><span class="n">Provision ${esc((S.groceryCat||"courses").toLowerCase())} restante</span><span class="a minus">−${eur(st.provLeft)}</span></div>
+      <div class="l mid"><span class="n">Enveloppe ${esc((S.groceryCat||"courses").toLowerCase())} restante</span><span class="a minus">−${eur(st.provLeft)}</span></div>
       <div class="l mid"><span class="n">Réserve encore protégée<small>loisirs et imprévus de fin de mois</small></span><span class="a minus">−${eur(st.reserveLeft)}</span></div>
       <div class="l"><span class="n">Déjà versé</span><span class="a">${st.savNet?"−"+eur(st.savNet):eur(0)}</span></div>
       <div class="l res"><span class="n">Reste à verser</span><span class="a ${st.reste<0?"minus":"plus"}">${eur(st.reste)}</span></div>
@@ -791,10 +803,10 @@ function vReglages(){
   </div>
 
   <div class="card">
-    <div class="sec-title"><span class="eyebrow">Provision hebdomadaire par défaut</span><button class="act" onclick="editDefaultGrocery()">Modifier</button></div>
-    <div class="bigline" style="margin-bottom:0"><div class="big sm">${eur(+S.groceryWeekly||0)}</div>
+    <div class="sec-title"><span class="eyebrow">Enveloppe mensuelle par défaut</span><button class="act" onclick="editDefaultGrocery()">Modifier</button></div>
+    <div class="bigline" style="margin-bottom:0"><div class="big sm">${eur(+S.groceryMonthly||0)}</div>
       <div class="perday"><div class="v">${esc(S.groceryCat||"Courses")}</div><div class="l">catégorie suivie</div></div></div>
-    <div class="hint">Budget hebdomadaire mis à l'abri pour les ${esc((S.groceryCat||"courses").toLowerCase())}. Les semaines où vous dépensez moins, l'écart est proposé au versement sur l'épargne.</div>
+    <div class="hint">Budget ${esc((S.groceryCat||"courses").toLowerCase())} repris sur chaque nouveau mois, réparti automatiquement sur les semaines. Modifiable mois par mois depuis le Relevé.</div>
   </div>
 
   <div class="card">
@@ -982,15 +994,39 @@ function editRefund(id){
 }
 
 function editGrocery(){
-  const M=month(cur), st=stats(cur), dim=daysIn(cur);
-  openSheet(`Provision ${(S.groceryCat||"courses").toLowerCase()}`,
-    `Le budget hebdomadaire est mis à l'abri comme la réserve. Sur ${dim} jours, ${eur0(st.weekly)} par semaine donnent une provision de <b class="num">${eur0(st.weekly*dim/7)}</b>. Les dépenses de la catégorie « ${esc(S.groceryCat||"Courses")} » la consomment.`,
-    [{k:"amount",label:"Budget par semaine",type:"money",ph:"0,00"},
+  const M=month(cur), st=stats(cur), dim=daysIn(cur), nw=weekBlocks(cur).length;
+  openSheet(`Enveloppe ${(S.groceryCat||"courses").toLowerCase()}`,
+    `Budget pour le mois entier. L'app le répartit sur les ${nw} semaines de ${MONTHS[ymParts(cur).m-1]} au prorata des jours, puis tu saisis chaque semaine ce que tu as vraiment dépensé.`,
+    [{k:"amount",label:"Budget du mois",type:"money",ph:"450,00"},
      {k:"scope",label:"Appliquer",type:"seg",options:[{v:"month",t:"Ce mois seulement"},{v:"always",t:"Et les mois suivants"}]}],
-    {amount: st.weekly||"", scope:"month"},
-    d=>{ const a=num(d.amount); M.groceryWeekly=a;
-      if(d.scope==="always") S.groceryWeekly=a;
-      toast(`Provision de <b>${eur0(a*dim/7)}</b> pour le mois`); });
+    {amount: st.monthly||"", scope:"month"},
+    d=>{ const a=num(d.amount); M.groceryMonthly=a;
+      if(d.scope==="always") S.groceryMonthly=a;
+      toast(`Enveloppe de <b>${eur0(a)}</b>, soit ${eur0(a*7/dim)} par semaine complète`); });
+}
+
+/* saisie de la dépense réelle d'une semaine */
+function editWeek(n){
+  const M=month(cur), wk=weekBlocks(cur), b=wk.find(x=>x.n===n); if(!b) return;
+  const ex=M.expenses.find(x=>x.gw===n);
+  const jour = Math.min(b.to, Math.max(b.from, cur===ymNow()?todayDay():b.to));
+  openSheet(`Semaine ${n} · du ${b.from} au ${b.to}`,
+    `Budget de la semaine <b class="num">${eur0(b.budget)}</b>. Saisis ce que la course t'a réellement coûté.${b.autres?`<br>Attention, ${eur0(b.autres)} de ${esc((S.groceryCat||"courses").toLowerCase())} sont déjà saisis ailleurs sur cette semaine, ils s'ajoutent à ce montant.`:""}`,
+    [{k:"amount",label:"Dépensé cette semaine",type:"money",ph:"0,00"},
+     {k:"wallet",label:"Payé avec",type:"select",options:wOpts()},
+     {k:"label",label:"Détail (facultatif)",type:"text",ph:"Intermarché"},
+     {k:"day",label:"Jour",type:"day"}],
+    ex ? {amount:ex.amount,wallet:ex.wallet,label:ex.label,day:ex.day}
+       : {amount:"",wallet:W0(),label:"",day:jour},
+    d=>{ const a=num(d.amount);
+      const day=Math.min(b.to,Math.max(b.from,clampDay(d.day)||jour));
+      if(a<=0){ if(ex) M.expenses=M.expenses.filter(x=>x.id!==ex.id); return; }
+      if(ex) Object.assign(ex,{amount:a,wallet:d.wallet,label:d.label.trim(),day,seen:ex.seen});
+      else M.expenses.push({id:uid(),gw:n,amount:a,category:(S.groceryCat||"Courses"),
+                            label:d.label.trim(),day,wallet:d.wallet,seen:false});
+      const st=stats(cur), nb=weekBlocks(cur).find(x=>x.n===n);
+      toast(`Semaine ${n} : ${eur(nb.spent)} sur ${eur0(nb.budget)}<br>${nb.ecart>=0?"+"+eur0(nb.ecart)+" gardés · ":""}reste <b>${eur0(st.provLeft)}</b> dans l'enveloppe`); },
+    ex ? ()=>{ M.expenses=M.expenses.filter(x=>x.id!==ex.id); } : null);
 }
 
 function releaseGrocery(x){
@@ -1141,11 +1177,11 @@ function sweep(){
 }
 
 function editDefaultGrocery(){
-  openSheet("Provision hebdomadaire","Valeur reprise sur chaque nouveau mois.",
-    [{k:"amount",label:"Budget par semaine",type:"money",ph:"0,00"},
+  openSheet("Enveloppe mensuelle","Valeur reprise sur chaque nouveau mois.",
+    [{k:"amount",label:"Budget du mois",type:"money",ph:"450,00"},
      {k:"cat",label:"Catégorie suivie",type:"select",options:S.categories.map(c=>({v:c,t:c}))}],
-    {amount:+S.groceryWeekly||"", cat:S.groceryCat||S.categories[0]},
-    d=>{ S.groceryWeekly=num(d.amount); S.groceryCat=d.cat; });
+    {amount:+S.groceryMonthly||"", cat:S.groceryCat||S.categories[0]},
+    d=>{ S.groceryMonthly=num(d.amount); S.groceryCat=d.cat; });
 }
 
 function editCats(){
@@ -1248,7 +1284,10 @@ function migrate(d){
   if(!Array.isArray(d.wallets)||!d.wallets.length) d.wallets=blank().wallets;
   if(!Array.isArray(d.transferTemplate)) d.transferTemplate=[];
   if(typeof d.defaultReserve!=="number") d.defaultReserve=0;
-  if(typeof d.groceryWeekly!=="number") d.groceryWeekly=0;
+  if(typeof d.groceryMonthly!=="number")
+    d.groceryMonthly = (typeof d.groceryWeekly==="number" && d.groceryWeekly>0)
+      ? Math.round(d.groceryWeekly*30/7*100)/100 : 0;
+  delete d.groceryWeekly;
   if(!d.groceryCat) d.groceryCat=(d.categories&&d.categories[0])||"Courses";
   const w0=d.wallets[0].id;
   const fix=o=>{ if(!o.wallet) o.wallet=w0; };
@@ -1262,7 +1301,10 @@ function migrate(d){
     if(!M.carry||typeof M.carry!=="object") M.carry={};
     (M.expenses||[]).forEach(x=>{ if(x.seen===undefined) x.seen=true; });
     (M.refunds||[]).forEach(x=>{ if(x.seen===undefined) x.seen=true; });
-    if(M.groceryWeekly===undefined) M.groceryWeekly=null;
+    if(M.groceryMonthly===undefined)
+      M.groceryMonthly = (typeof M.groceryWeekly==="number")
+        ? Math.round(M.groceryWeekly*daysIn(ym)/7*100)/100 : null;
+    delete M.groceryWeekly;
     if(typeof M.groceryReleased!=="number") M.groceryReleased=0;
     (M.incomes||[]).forEach(fix); (M.fixed||[]).forEach(fix);
     (M.expenses||[]).forEach(fix); (M.moves||[]).forEach(fix);
