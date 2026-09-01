@@ -216,7 +216,7 @@ const Store = {
 const DEFAULT_CATS = ["Courses","Restaurant","Carburant","Transport","Santé","Vêtements","Loisirs","Maison","Cadeaux","Beauté","Enfant","Voyage","Divers"];
 function blank(){
   return {
-    v:3,
+    v:5,
     categories: DEFAULT_CATS.slice(),
     wallets: [
       {id:"w-com",  name:"Compte commun"},
@@ -224,6 +224,8 @@ function blank(){
       {id:"w-elle", name:"Compte de ma femme"}
     ],
     defaultReserve: 0,
+    groceryCat: "Courses",
+    groceryWeekly: 0,
     incomeTemplate: [], fixedTemplate: [], transferTemplate: [],
     accounts: [], months: {}
   };
@@ -246,7 +248,8 @@ function persist(){ clearTimeout(saveT); saveT=setTimeout(()=>Store.save(S),180)
 function month(ym){
   if(!S.months[ym]){
     S.months[ym] = {
-      reserve:null,
+      reserve:null, groceryWeekly:null, groceryReleased:0, carry:{},
+      refunds:[],
       incomes:   S.incomeTemplate.map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,wallet:t.wallet||W0(),got:false})),
       fixed:     S.fixedTemplate.map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,category:t.category,wallet:t.wallet||W0(),paid:false})),
       transfers: S.transferTemplate.map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,from:t.from,to:t.to})),
@@ -266,6 +269,21 @@ function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;"
 
 /* ---------- calculs ---------- */
 function reserveOf(ym){ const M=month(ym); return M.reserve!=null ? +M.reserve : (+S.defaultReserve||0); }
+function weeklyOf(ym){ const M=month(ym); return M.groceryWeekly!=null ? +M.groceryWeekly : (+S.groceryWeekly||0); }
+function isGro(x){ return (x.category||"")===(S.groceryCat||"Courses"); }
+
+function weekBlocks(ym){
+  const dim=daysIn(ym), wkly=weeklyOf(ym), M=month(ym);
+  const out=[]; let d=1, n=1;
+  while(d<=dim){
+    const to=Math.min(d+6,dim), days=to-d+1;
+    const spent=M.expenses.filter(x=>isGro(x)&&x.day>=d&&x.day<=to).reduce((a,x)=>a+(+x.amount||0),0)
+              - (M.refunds||[]).filter(x=>x.kind==="refund"&&isGro(x)&&x.day>=d&&x.day<=to).reduce((a,x)=>a+(+x.amount||0),0);
+    out.push({n,from:d,to,days,budget:wkly*days/7,spent,ecart:wkly*days/7-spent});
+    d=to+1; n++;
+  }
+  return out;
+}
 
 function stats(ym, w){
   const M = month(ym);
@@ -275,7 +293,16 @@ function stats(ym, w){
   const inGot   = sum(F(M.incomes).filter(x=>x.got));
   const fixTot  = sum(F(M.fixed));
   const fixPaid = sum(F(M.fixed).filter(x=>x.paid));
-  const occas   = sum(F(M.expenses));
+  const allExp  = F(M.expenses);
+  const rf      = F(M.refunds||[]);
+  const refundG = sum(rf.filter(x=>x.kind==="refund" &&  isGro(x)));
+  const refundO = sum(rf.filter(x=>x.kind==="refund" && !isGro(x)));
+  const extra   = sum(rf.filter(x=>x.kind==="extra"));
+  const courses = sum(allExp.filter(isGro));
+  const autres  = sum(allExp.filter(x=>!isGro(x)));
+  const coursesNet = courses - refundG;
+  const autresNet  = autres  - refundO;
+  const occas   = coursesNet + autresNet;
   const tr      = M.transfers||[];
   const trIn    = w ? sum(tr.filter(x=>x.to===w))   : 0;
   const trOut   = w ? sum(tr.filter(x=>x.from===w)) : 0;
@@ -284,18 +311,42 @@ function stats(ym, w){
   const savOut  = sum(mv.filter(x=>x.kind==="out"));
   const savNet  = savIn - savOut;
 
-  const capacite = inTot + trIn - trOut - fixTot;   // après les dépenses récurrentes
-  const reserve    = w ? 0 : reserveOf(ym);
-  const reserveLeft= Math.max(0, reserve - occas);
-  const reserveUsed= Math.min(reserve, occas);
-  const overRes    = Math.max(0, occas - reserve);
-  const epargnePos = capacite - occas - reserveLeft; // ce qu'on peut verser aujourd'hui
-  const reste      = epargnePos - savNet;            // reste à verser
-  const libre      = capacite - occas - savNet;      // liquide total restant
+  const cy      = M.carry||{};
+  const carry   = w ? (+cy[w]||0) : S.wallets.reduce((a,x)=>a+(+cy[x.id]||0),0);
+  const capacite = carry + inTot + extra + trIn - trOut - fixTot;
 
-  return {inTot,inGot,fixTot,fixPaid,fixDue:fixTot-fixPaid,occas,trIn,trOut,savIn,savOut,savNet,
+  const expSeen   = sum(allExp.filter(x=>x.seen));
+  const expWait   = sum(allExp.filter(x=>!x.seen));
+  const rfSeen    = sum(rf.filter(x=>x.seen));
+  const rfWait    = sum(rf.filter(x=>!x.seen));
+  const nWait     = allExp.filter(x=>!x.seen).length + rf.filter(x=>!x.seen).length;
+  const soldeBanque = carry + inGot + trIn - trOut + rfSeen - fixPaid - expSeen - savNet;
+  const attente     = expWait - rfWait;
+  const soldeApres  = soldeBanque - attente;
+
+  const weekly     = w ? 0 : weeklyOf(ym);
+  const provision  = w ? 0 : weekly*daysIn(ym)/7;
+  const released   = w ? 0 : (+M.groceryReleased||0);
+  const provLeft   = Math.max(0, provision - released - coursesNet);
+  const provUsed   = Math.min(Math.max(0,provision-released), Math.max(0,coursesNet));
+  const overGro    = Math.max(0, coursesNet - (provision-released));
+
+  const reserve    = w ? 0 : reserveOf(ym);
+  const reserveLeft= Math.max(0, reserve - autresNet);
+  const reserveUsed= Math.min(reserve, Math.max(0,autresNet));
+  const overRes    = Math.max(0, autresNet - reserve);
+
+  const epargnePos = capacite - occas - provLeft - reserveLeft;
+  const reste      = epargnePos - savNet;
+  const libre      = capacite - occas - savNet;
+  const enAttente  = soldeBanque - libre;
+
+  return {carry,soldeBanque,soldeApres,attente,enAttente,expWait,rfWait,nWait,inTot,inGot,fixTot,fixPaid,fixDue:fixTot-fixPaid,occas,trIn,trOut,savIn,savOut,savNet,
+          extra,refundG,refundO,refundTot:refundG+refundO,courses,coursesNet,autres,autresNet,
+          weekly,provision,released,provLeft,provUsed,overGro,
           capacite,reserve,reserveLeft,reserveUsed,overRes,epargnePos,reste,libre,
-          nExp:F(M.expenses).length,nInc:F(M.incomes).length,nFix:F(M.fixed).length};
+          nExp:allExp.length,nAut:allExp.filter(x=>!isGro(x)).length,nGro:allExp.filter(isGro).length,
+          nInc:F(M.incomes).length,nFix:F(M.fixed).length,nRf:rf.length};
 }
 function savingsTotal(){
   let t=(S.accounts||[]).reduce((a,x)=>a+(+x.initial||0),0);
@@ -307,6 +358,15 @@ function accountBalance(id){
   for(const ym in S.months) for(const mv of S.months[ym].moves) if(mv.accountId===id) t+=(mv.kind==="in"?1:-1)*(+mv.amount||0);
   return t;
 }
+
+function prevSoldes(ym){
+  const prev=ymShift(ym,-1);
+  if(!S.months[prev]) return null;
+  const out={}; let any=false;
+  S.wallets.forEach(w=>{ const v=stats(prev,w.id).libre; out[w.id]=v; if(Math.abs(v)>0.005) any=true; });
+  return {prev,out,any};
+}
+function isWeekendBlind(){ const d=new Date().getDay(); return d===5||d===6||d===0||d===1; }
 
 /* ---------- rendu ---------- */
 const view = document.getElementById("view");
@@ -349,16 +409,20 @@ function vReleve(){
   const dayNo = isCur ? Math.min(new Date().getDate(),dim) : dim;
   const daysLeft = Math.max(0, dim-dayNo);
 
-  // jauge 1 : la réserve loisirs
-  const resPct  = st.reserve>0 ? Math.min(100,(st.occas/st.reserve)*100) : (st.occas>0?100:0);
+  const wk = weekBlocks(cur);
+  const economy = wk.filter(x=>x.to<=dayNo).reduce((a,x)=>a+x.ecart,0);
+  const releasable = Math.max(0, Math.min(st.provLeft, economy));
+
+  // jauge : la réserve loisirs
+  const resPct  = st.reserve>0 ? Math.min(100,(st.autresNet/st.reserve)*100) : (st.autresNet>0?100:0);
   const pacePct = Math.min(100,(dayNo/dim)*100);
   let resVerdict;
   if(st.reserve<=0){
-    resVerdict = `Aucune réserve fixée. Décide d'un montant pour les loisirs et les imprévus, il sera mis à l'abri avant le calcul de l'épargne.`;
+    resVerdict = `Aucune réserve fixée. Décide d'un montant pour les loisirs et les imprévus hors ${esc((S.groceryCat||"courses").toLowerCase())}, il sera mis à l'abri avant le calcul de l'épargne.`;
   }else if(st.overRes>0){
     resVerdict = `La réserve est épuisée et dépassée de <b>${eur0(st.overRes)}</b>. Ce dépassement est pris sur ce que vous alliez épargner.`;
   }else if(isCur){
-    const gap = st.reserve*(dayNo/dim) - st.occas;
+    const gap = st.reserve*(dayNo/dim) - st.autresNet;
     resVerdict = gap>=0
       ? `Au ${dayNo} du mois vous êtes <b>en dessous de la cadence</b> de ${eur0(gap)}. ${daysLeft?eur0(st.reserveLeft/Math.max(1,daysLeft))+" par jour jusqu'à la fin.":""}`
       : `Au ${dayNo} du mois vous consommez <b>plus vite que la cadence</b>, de ${eur0(-gap)}. ${daysLeft?"Il reste "+eur0(st.reserveLeft)+" pour "+daysLeft+" jour"+(daysLeft>1?"s":"")+".":""}`;
@@ -374,6 +438,8 @@ function vReleve(){
         <span class="nm">${esc(w.name)}</span>
         <span class="am ${s.libre<0?"neg":""}">${eur(s.libre)}</span></div>
       <div class="wsub">
+        ${s.carry?`<span>report <b>${s.carry<0?"−":"+"}${eur0(Math.abs(s.carry))}</b></span>`:``}
+        ${s.nWait?`<span>en attente <b>${eur0(s.attente)}</b></span>`:``}
         <span>entrées <b>${eur0(s.inTot)}</b></span>
         ${(s.trIn-s.trOut)?`<span>virements <b>${(s.trIn-s.trOut)>0?"+":"−"}${eur0(Math.abs(s.trIn-s.trOut))}</b></span>`:``}
         <span>récurrent <b>${eur0(s.fixTot)}</b></span>
@@ -393,9 +459,13 @@ function vReleve(){
       <div class="big ${st.reste<0?"neg":"teal"}">${eur(st.reste)}</div>
     </div>
     <div class="calc">
+      ${st.carry?`<div class="l tap" onclick="go('comptes')"><span class="n">Report du mois précédent<small>ce qui restait sur les comptes</small></span><span class="a ${st.carry<0?"minus":"plus"}">${st.carry<0?"−":"+"}${eur(Math.abs(st.carry))}</span></div>`:``}
       <div class="l"><span class="n">Ressources<small>${st.nInc} ligne${st.nInc>1?"s":""} · ${st.inGot<st.inTot?eur0(st.inTot-st.inGot)+" à recevoir":"tout est arrivé"}</small></span><span class="a plus">${eur(st.inTot)}</span></div>
+      ${st.extra?`<div class="l tap" onclick="go('ressources')"><span class="n">Recettes exceptionnelles<small>primes, ventes, aides</small></span><span class="a plus">+${eur(st.extra)}</span></div>`:``}
       <div class="l"><span class="n">Dépenses récurrentes<small>${st.nFix} prélèvement${st.nFix>1?"s":""} · ${st.fixDue>0?eur0(st.fixDue)+" à venir":"tout est passé"}</small></span><span class="a minus">−${eur(st.fixTot)}</span></div>
-      <div class="l"><span class="n">Dépenses occasionnelles<small>${st.nExp} saisie${st.nExp>1?"s":""} ce mois</small></span><span class="a minus">−${eur(st.occas)}</span></div>
+      <div class="l"><span class="n">${esc(S.groceryCat||"Courses")}<small>${st.nGro} saisie${st.nGro>1?"s":""} · ${eur0(st.courses)} dépensés${st.refundG?" · "+eur0(st.refundG)+" remboursés":""}</small></span><span class="a minus">−${eur(st.coursesNet)}</span></div>
+      <div class="l"><span class="n">Autres dépenses occasionnelles<small>${st.nAut} saisie${st.nAut>1?"s":""}${st.refundO?" · "+eur0(st.refundO)+" remboursés":""}</small></span><span class="a minus">−${eur(st.autresNet)}</span></div>
+      <div class="l mid tap" onclick="editGrocery()"><span class="n">Provision ${esc((S.groceryCat||"Courses").toLowerCase())} restante<small>${st.weekly>0?eur0(st.weekly)+" par semaine · toucher pour modifier":"non fixée · toucher pour la définir"}</small></span><span class="a minus">−${eur(st.provLeft)}</span></div>
       <div class="l mid tap" onclick="editReserve()"><span class="n">Réserve loisirs et imprévus<small>${st.reserve>0?eur0(st.reserveLeft)+" encore protégés · toucher pour modifier":"non fixée · toucher pour la définir"}</small></span><span class="a minus">−${eur(st.reserveLeft)}</span></div>
       <div class="l"><span class="n">Déjà versé à l'épargne</span><span class="a">${st.savNet?"−"+eur(st.savNet):eur(0)}</span></div>
       <div class="l res"><span class="n">Reste à mettre de côté</span><span class="a ${st.reste<0?"minus":"plus"}">${eur(st.reste)}</span></div>
@@ -404,6 +474,27 @@ function vReleve(){
     ${st.reste>0&&!S.accounts.length?`<div class="hint">Ajoute un livret dans l'onglet Épargne pour pouvoir y verser cette somme.</div>`:``}
     ${st.reste<0?`<div class="hint">Le mois ne se boucle pas seul. Réduis la réserve, ou puise dans l'épargne depuis l'onglet Épargne si c'est un cas de force majeure.</div>`:``}
   </div>
+
+  ${st.weekly>0||st.courses>0?`
+  <div class="card">
+    <div class="sec-title"><span class="eyebrow">Provision ${esc((S.groceryCat||"Courses").toLowerCase())}</span>
+      <button class="act" onclick="editGrocery()">${st.weekly>0?eur0(st.weekly)+" / semaine":"Définir"}</button></div>
+    <div class="bigline">
+      <div class="big sm ${st.overGro>0?"neg":""}">${eur(st.provLeft)}</div>
+      <div class="perday"><div class="v">${eur0(st.coursesNet)}</div><div class="l">dépensés</div></div>
+    </div>
+    <div class="scale" style="height:22px">
+      <div class="track"><div class="seg-a" data-fill="${st.provision>0?Math.min(100,(st.coursesNet/st.provision)*100):0}" data-state="${st.overGro>0?"over":(st.provision>0&&st.coursesNet/st.provision>=.8)?"warn":"none"}"></div></div>
+    </div>
+    <div class="calc" style="margin-top:10px">
+      ${wk.map(x=>`<div class="l"><span class="n">Semaine ${x.n}<small>du ${x.from} au ${x.to}${x.days<7?" · "+x.days+" jours":""}${x.to>dayNo?" · en cours ou à venir":""}</small></span>
+        <span class="a" style="text-align:right">${eur(x.spent)}<br><small style="font-weight:500;color:${x.ecart>=0?"var(--teal)":"var(--alert)"}">${x.to>dayNo?"prévu "+eur0(x.budget):(x.ecart>=0?"+"+eur0(x.ecart)+" économisés":eur0(-x.ecart)+" de trop")}</small></span></div>`).join("")}
+      <div class="l res"><span class="n">Écart sur les semaines écoulées</span><span class="a ${economy>=0?"plus":"minus"}">${economy>=0?"+":"−"}${eur(Math.abs(economy))}</span></div>
+    </div>
+    ${releasable>0?`<button class="btn teal sm" style="margin-top:12px" onclick="releaseGrocery(${releasable.toFixed(2)})">Libérer ${eur0(releasable)} vers l'épargne</button>`:``}
+    ${st.released>0?`<div class="hint">${eur0(st.released)} déjà libérés ce mois. <button class="act" style="color:var(--indigo)" onclick="resetRelease()">Annuler</button></div>`:``}
+    ${releasable<=0&&!st.released?`<div class="hint">Quand une semaine coûte moins que prévu, l'écart apparaît ici et le bouton te propose de le basculer vers l'épargne.</div>`:``}
+  </div>`:``}
 
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Réserve loisirs et imprévus</span>
@@ -425,6 +516,22 @@ function vReleve(){
     <div class="verdict">${resVerdict}</div>
     <button class="btn ghost sm" style="margin-top:12px" onclick="editExpense()">Ajouter une dépense</button>
   </div>
+
+  ${st.nWait?`
+  <div class="card">
+    <div class="sec-title"><span class="eyebrow">En attente de débit</span>
+      <button class="act" onclick="go('comptes')">Pointer</button></div>
+    <div class="bigline">
+      <div class="big sm">${eur(st.attente)}</div>
+      <div class="perday"><div class="v">${st.nWait}</div><div class="l">opération${st.nWait>1?"s":""}</div></div>
+    </div>
+    <div class="calc">
+      <div class="l"><span class="n">Ce que la banque affiche aujourd'hui<small>seulement les lignes déjà pointées</small></span><span class="a ${st.soldeBanque<0?"minus":""}">${eur(st.soldeBanque)}</span></div>
+      <div class="l res"><span class="n">Une fois ces opérations passées</span><span class="a ${st.soldeApres<0?"minus":""}">${eur(st.soldeApres)}</span></div>
+    </div>
+    ${isWeekendBlind()&&cur===ymNow()?`<div class="banner" style="margin:12px 0 0">Nous sommes dans la fenêtre aveugle du week-end. Ta banque n'affichera ces opérations que mardi. Le chiffre du bas est le vrai.</div>`:`<div class="hint">Coche une dépense dès qu'elle apparaît sur le relevé bancaire, les deux chiffres se rejoindront.</div>`}
+    <button class="btn ghost sm" style="margin-top:12px" onclick="markAllSeen()">Tout pointer d'un coup</button>
+  </div>`:``}
 
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Par compte</span><button class="act" onclick="go('comptes')">Détail</button></div>
@@ -455,6 +562,7 @@ function vReleve(){
 function vRessources(){
   const M=month(cur), st=stats(cur);
   const byW = S.wallets.map(w=>({w, list:M.incomes.filter(i=>i.wallet===w.id)}));
+  const rf=(M.refunds||[]).slice().sort((a,b)=>(b.day||0)-(a.day||0));
   const orphan = M.incomes.filter(i=>!S.wallets.some(w=>w.id===i.wallet));
 
   const block = (title,color,list) => `
@@ -482,6 +590,19 @@ function vRessources(){
     <div class="hint">Salaires, primes, allocations, remboursements. Coche une ligne quand l'argent est effectivement arrivé.</div>
   </div>
 
+  <div class="card">
+    <div class="sec-title"><span class="eyebrow">Rentrées en cours de mois</span>
+      <button class="act" onclick="editRefund()">Ajouter</button></div>
+    ${rf.length? rf.map(x=>`<div class="row" onclick="editRefund('${x.id}')">
+      <div class="day">${x.day}<small>${MONTHS[ymParts(cur).m-1].slice(0,3)}</small></div>
+      <div class="body"><div class="t">${esc(x.label||(x.kind==="refund"?"Remboursement":"Recette"))}</div>
+        <div class="s"><span class="dot" style="background:${wColor(x.wallet)}"></span>${x.kind==="refund"?"remboursement · "+esc(x.category||""):"recette exceptionnelle"}</div></div>
+      <div class="amt plus" style="color:var(--teal)">+${eur(x.amount)}</div></div>`).join("")
+      : `<div class="empty"><b>Rien pour l'instant.</b>Remboursement mutuelle, note de frais, prime, vente. Un remboursement vient annuler la dépense correspondante, une recette s'ajoute aux ressources.</div>`}
+    ${rf.length?`<div class="total-line"><span>Total</span><span class="a">${eur(rf.reduce((a,x)=>a+(+x.amount||0),0))}</span></div>`:``}
+    ${st.refundTot?`<div class="hint">${eur0(st.refundG)} viennent en déduction des ${esc((S.groceryCat||"courses").toLowerCase())} et ${eur0(st.refundO)} des autres dépenses. La réserve s'en trouve reconstituée d'autant.</div>`:``}
+  </div>
+
   ${byW.map(({w,list})=>block(w.name, wColor(w.id), list)).join("")}
   ${orphan.length?block("Compte inconnu","var(--ink-3)",orphan):""}
 
@@ -499,6 +620,8 @@ function vComptes(){
   const exp=M.expenses.filter(x=>x.wallet===w).sort((a,b)=>(b.day||0)-(a.day||0));
   const inc=M.incomes.filter(x=>x.wallet===w);
   const trs=(M.transfers||[]).filter(t=>t.from===w||t.to===w).sort((a,b)=>(b.day||0)-(a.day||0));
+  const rfs=(M.refunds||[]).filter(x=>x.wallet===w).sort((a,b)=>(b.day||0)-(a.day||0));
+  const pv=prevSoldes(cur);
 
   const picker = `<div class="tabs">${S.wallets.map(x=>`
     <button class="${x.id===w?"on":""}" onclick="setW('${x.id}')">
@@ -506,13 +629,21 @@ function vComptes(){
 
   return picker+`
   <div class="card">
-    <span class="eyebrow">Solde du compte</span>
-    <div class="bigline"><div class="big sm ${st.libre<0?"neg":""}">${eur(st.libre)}</div></div>
+    <div class="sec-title"><span class="eyebrow">Solde du compte</span>
+      <button class="act" onclick="editCarry('${w}')">${st.carry?"Report "+eur0(st.carry):"Saisir le report"}</button></div>
+    <div class="bigline">
+      <div class="big sm ${st.libre<0?"neg":""}">${eur(st.libre)}</div>
+      ${st.nWait?`<div class="perday"><div class="v">${eur0(st.soldeApres)}</div><div class="l">après pointage</div></div>`:``}
+    </div>
+    ${st.nWait?`<div class="hint" style="margin-top:0;margin-bottom:10px">La banque affiche ${eur0(st.soldeBanque)}. ${st.nWait} opération${st.nWait>1?"s":""} pour ${eur0(st.attente)} n'${st.nWait>1?"y sont":"y est"} pas encore, il restera donc ${eur0(st.soldeApres)}.</div>`:``}
+    ${pv&&!st.carry?`<button class="btn ghost sm" style="margin-bottom:12px" onclick="carryFromPrev()">Reprendre les soldes de ${MONTHS[ymParts(pv.prev).m-1]}</button>`:``}
     <div class="calc">
+      ${st.carry?`<div class="l"><span class="n">Report du mois précédent</span><span class="a ${st.carry<0?"minus":"plus"}">${st.carry<0?"−":"+"}${eur(Math.abs(st.carry))}</span></div>`:``}
       <div class="l"><span class="n">Ressources versées ici</span><span class="a plus">${eur(st.inTot)}</span></div>
+      ${(st.extra||st.refundTot)?`<div class="l"><span class="n">Rentrées en cours de mois<small>${st.refundTot?eur0(st.refundTot)+" de remboursements":""}${st.refundTot&&st.extra?" · ":""}${st.extra?eur0(st.extra)+" de recettes":""}</small></span><span class="a plus">+${eur(st.extra+st.refundTot)}</span></div>`:``}
       ${(st.trIn||st.trOut)?`<div class="l"><span class="n">Virements internes<small>reçus ${eur0(st.trIn)} · envoyés ${eur0(st.trOut)}</small></span><span class="a ${(st.trIn-st.trOut)<0?"minus":"plus"}">${(st.trIn-st.trOut)>=0?"+":"−"}${eur(Math.abs(st.trIn-st.trOut))}</span></div>`:``}
       <div class="l"><span class="n">Dépenses récurrentes</span><span class="a minus">−${eur(st.fixTot)}</span></div>
-      <div class="l"><span class="n">Dépenses occasionnelles</span><span class="a minus">−${eur(st.occas)}</span></div>
+      <div class="l"><span class="n">Dépenses occasionnelles<small>${eur0(st.courses+st.autres)} dépensés</small></span><span class="a minus">−${eur(st.courses+st.autres)}</span></div>
       ${st.savNet?`<div class="l"><span class="n">Versé à l'épargne</span><span class="a minus">−${eur(st.savNet)}</span></div>`:``}
       <div class="l res"><span class="n">Reste sur le compte</span><span class="a ${st.libre<0?"minus":""}">${eur(st.libre)}</span></div>
     </div>
@@ -532,12 +663,25 @@ function vComptes(){
 
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Dépenses occasionnelles</span><button class="act" onclick="editExpense()">Ajouter</button></div>
-    ${exp.length? exp.map(e=>`<div class="row" onclick="editExpense('${e.id}')">
+    ${exp.length? exp.map(e=>`<div class="row ${e.seen?"":""}">
+      <button class="chk ${e.seen?"on":""}" onclick="toggleSeen('${e.id}')" aria-label="Vue sur le compte">✓</button>
       <div class="day">${e.day}<small>${MONTHS[ymParts(cur).m-1].slice(0,3)}</small></div>
-      <div class="body"><div class="t">${esc(e.label||e.category)}</div><div class="s">${esc(e.category)}</div></div>
-      <div class="amt">${eur(e.amount)}</div></div>`).join("")
+      <div class="body" onclick="editExpense('${e.id}')"><div class="t">${esc(e.label||e.category)}</div>
+        <div class="s">${esc(e.category)} · ${e.seen?"débité":"en attente"}</div></div>
+      <div class="amt" onclick="editExpense('${e.id}')" style="${e.seen?"":"color:var(--amber)"}">${eur(e.amount)}</div></div>`).join("")
       : `<div class="empty"><b>Rien de saisi sur ce compte.</b>Courses, essence, restaurant, imprévus.</div>`}
     ${exp.length?`<div class="total-line"><span>Total</span><span class="a">${eur(st.occas)}</span></div>`:``}
+  </div>
+
+  <div class="card">
+    <div class="sec-title"><span class="eyebrow">Rentrées en cours de mois</span><button class="act" onclick="editRefund()">Ajouter</button></div>
+    ${rfs.length? rfs.map(x=>`<div class="row">
+      <div class="day">${x.day}<small>${MONTHS[ymParts(cur).m-1].slice(0,3)}</small></div>
+      <button class="chk ${x.seen?"on":""}" onclick="toggleSeen('${x.id}')" aria-label="Vu sur le compte">✓</button>
+      <div class="body" onclick="editRefund('${x.id}')"><div class="t">${esc(x.label||(x.kind==="refund"?"Remboursement":"Recette"))}</div>
+        <div class="s">${x.kind==="refund"?"remboursement":"recette"} · ${x.seen?"crédité":"en attente"}</div></div>
+      <div class="amt" style="color:var(--teal)">+${eur(x.amount)}</div></div>`).join("")
+      : `<div class="empty">Aucun remboursement ni recette sur ce compte.</div>`}
   </div>
 
   <div class="card">
@@ -579,7 +723,9 @@ function vEpargne(){
     <div class="calc">
       <div class="l"><span class="n">Ressources</span><span class="a plus">${eur(st.inTot)}</span></div>
       <div class="l"><span class="n">Dépenses récurrentes</span><span class="a minus">−${eur(st.fixTot)}</span></div>
-      <div class="l"><span class="n">Dépenses occasionnelles</span><span class="a minus">−${eur(st.occas)}</span></div>
+      ${st.extra?`<div class="l"><span class="n">Recettes exceptionnelles</span><span class="a plus">+${eur(st.extra)}</span></div>`:``}
+      <div class="l"><span class="n">Dépenses occasionnelles<small>nettes de ${eur0(st.refundTot)} de remboursements</small></span><span class="a minus">−${eur(st.occas)}</span></div>
+      <div class="l mid"><span class="n">Provision ${esc((S.groceryCat||"courses").toLowerCase())} restante</span><span class="a minus">−${eur(st.provLeft)}</span></div>
       <div class="l mid"><span class="n">Réserve encore protégée<small>loisirs et imprévus de fin de mois</small></span><span class="a minus">−${eur(st.reserveLeft)}</span></div>
       <div class="l"><span class="n">Déjà versé</span><span class="a">${st.savNet?"−"+eur(st.savNet):eur(0)}</span></div>
       <div class="l res"><span class="n">Reste à verser</span><span class="a ${st.reste<0?"minus":"plus"}">${eur(st.reste)}</span></div>
@@ -628,6 +774,13 @@ function vReglages(){
   </div>
 
   <div class="card">
+    <div class="sec-title"><span class="eyebrow">Provision hebdomadaire par défaut</span><button class="act" onclick="editDefaultGrocery()">Modifier</button></div>
+    <div class="bigline" style="margin-bottom:0"><div class="big sm">${eur(+S.groceryWeekly||0)}</div>
+      <div class="perday"><div class="v">${esc(S.groceryCat||"Courses")}</div><div class="l">catégorie suivie</div></div></div>
+    <div class="hint">Budget hebdomadaire mis à l'abri pour les ${esc((S.groceryCat||"courses").toLowerCase())}. Les semaines où vous dépensez moins, l'écart est proposé au versement sur l'épargne.</div>
+  </div>
+
+  <div class="card">
     <div class="sec-title"><span class="eyebrow">Ressources récurrentes</span><button class="act" onclick="editTplIncome()">Ajouter</button></div>
     ${S.incomeTemplate.length? S.incomeTemplate.map(t=>`<div class="row" onclick="editTplIncome('${t.id}')">
       <div class="body"><div class="t">${esc(t.label)}</div>
@@ -660,6 +813,15 @@ function vReglages(){
   <div class="card">
     <div class="sec-title"><span class="eyebrow">Catégories</span><button class="act" onclick="editCats()">Modifier</button></div>
     <div class="chips">${S.categories.map(c=>`<button style="pointer-events:none">${esc(c)}</button>`).join("")}</div>
+  </div>
+
+  <div class="card">
+    <div class="sec-title"><span class="eyebrow">Report des soldes</span><button class="act" onclick="carryFromPrev()">Reprendre</button></div>
+    ${S.wallets.map(w=>`<div class="row" onclick="editCarry('${w.id}')">
+      <span class="dot" style="background:${wColor(w.id)}"></span>
+      <div class="body"><div class="t">${esc(w.name)}</div><div class="s">report du mois précédent</div></div>
+      <div class="amt" style="color:${((month(cur).carry||{})[w.id]||0)<0?"var(--alert)":"inherit"}">${eur((month(cur).carry||{})[w.id]||0)}</div></div>`).join("")}
+    <div class="hint">Saisis ici ce qui restait réellement sur chaque compte en fin de mois dernier, ou laisse l'app le calculer avec Reprendre. Les montants négatifs sont acceptés.</div>
   </div>
 
   <div class="card">
@@ -739,6 +901,80 @@ function editReserve(){
       toast(`Réserve fixée à <b>${eur0(a)}</b><br>Reste à mettre de côté ${eur0(stats(cur).reste)}`); });
 }
 
+function toggleSeen(id){
+  const M=month(cur);
+  const o=M.expenses.find(x=>x.id===id)||(M.refunds||[]).find(x=>x.id===id);
+  if(!o) return; o.seen=!o.seen; persist(); render();
+}
+
+function editCarry(wid){
+  const M=month(cur); M.carry=M.carry||{};
+  const wn=wName(wid), pv=prevSoldes(cur);
+  openSheet("Report sur "+wn,
+    `Ce qui restait sur ce compte à la fin du mois précédent. Un montant négatif est accepté si le mois s'est terminé à découvert.${pv?`<br>Calculé par l'app pour ${MONTHS[ymParts(pv.prev).m-1]} : <b class="num">${eur(pv.out[wid]||0)}</b>.`:""}`,
+    [{k:"amount",label:"Montant du report",type:"money",ph:"0,00"}],
+    {amount: (M.carry[wid]!=null&&M.carry[wid]!==0)?M.carry[wid]:""},
+    d=>{ const v=String(d.amount).trim();
+      if(v==="") delete M.carry[wid]; else M.carry[wid]=num(v);
+      toast(`Report de ${eur0(M.carry[wid]||0)} sur ${esc(wn)}`); });
+}
+
+function carryFromPrev(){
+  const pv=prevSoldes(cur); if(!pv){ toast("Aucun mois précédent"); return; }
+  const M=month(cur); M.carry=M.carry||{};
+  S.wallets.forEach(w=>{ M.carry[w.id]=Math.round((pv.out[w.id]||0)*100)/100; });
+  persist(); render();
+  toast(`Soldes de ${MONTHS[ymParts(pv.prev).m-1]} reportés<br>Total ${eur0(stats(cur).carry)}`);
+}
+
+function markAllSeen(){
+  const M=month(cur);
+  M.expenses.forEach(x=>x.seen=true); (M.refunds||[]).forEach(x=>x.seen=true);
+  persist(); render(); toast("Tout est pointé");
+}
+
+function editRefund(id){
+  const M=month(cur), it=id?M.refunds.find(x=>x.id===id):null;
+  openSheet(it?"Modifier la rentrée":"Rentrée en cours de mois",
+    it?"":"Un remboursement annule tout ou partie d'une dépense déjà saisie et reconstitue la réserve. Une recette exceptionnelle s'ajoute aux ressources du mois.",
+    [{k:"kind",label:"Nature",type:"seg",options:[{v:"refund",t:"Remboursement"},{v:"extra",t:"Recette exceptionnelle"}]},
+     {k:"amount",label:"Montant",type:"money",ph:"0,00"},
+     {k:"wallet",label:"Reçu sur",type:"select",options:wOpts()},
+     {k:"category",label:"Dépense concernée (si remboursement)",type:"select",options:S.categories.map(c=>({v:c,t:c}))},
+     {k:"label",label:"Détail (facultatif)",type:"text",ph:"Mutuelle · consultation"},
+     {k:"day",label:"Jour",type:"day"}],
+    it||{kind:"refund",day:todayDay(),wallet:defW(),category:S.categories[0]},
+    d=>{ const a=num(d.amount); if(a<=0){toast("Indique un montant");return false;}
+      const ob={kind:d.kind,amount:a,wallet:d.wallet,category:d.category,label:d.label.trim(),day:clampDay(d.day)||todayDay()};
+      if(it) Object.assign(it,ob);
+      else { M.refunds.push(Object.assign({id:uid(),seen:false},ob));
+             const st=stats(cur);
+             toast(d.kind==="refund"
+               ? `+${eur(a)} remboursés<br>Réserve ${eur0(st.reserveLeft)} · reste à mettre de côté <b>${eur0(st.reste)}</b>`
+               : `+${eur(a)} de recette<br>Reste à mettre de côté <b>${eur0(st.reste)}</b>`); } },
+    it?()=>{ M.refunds=M.refunds.filter(x=>x.id!==id); }:null);
+}
+
+function editGrocery(){
+  const M=month(cur), st=stats(cur), dim=daysIn(cur);
+  openSheet(`Provision ${(S.groceryCat||"courses").toLowerCase()}`,
+    `Le budget hebdomadaire est mis à l'abri comme la réserve. Sur ${dim} jours, ${eur0(st.weekly)} par semaine donnent une provision de <b class="num">${eur0(st.weekly*dim/7)}</b>. Les dépenses de la catégorie « ${esc(S.groceryCat||"Courses")} » la consomment.`,
+    [{k:"amount",label:"Budget par semaine",type:"money",ph:"0,00"},
+     {k:"scope",label:"Appliquer",type:"seg",options:[{v:"month",t:"Ce mois seulement"},{v:"always",t:"Et les mois suivants"}]}],
+    {amount: st.weekly||"", scope:"month"},
+    d=>{ const a=num(d.amount); M.groceryWeekly=a;
+      if(d.scope==="always") S.groceryWeekly=a;
+      toast(`Provision de <b>${eur0(a*dim/7)}</b> pour le mois`); });
+}
+
+function releaseGrocery(x){
+  const M=month(cur);
+  M.groceryReleased=(+M.groceryReleased||0)+ +x;
+  persist(); render();
+  toast(`${eur0(x)} libérés<br>Reste à mettre de côté <b>${eur0(stats(cur).reste)}</b>`);
+}
+function resetRelease(){ const M=month(cur); M.groceryReleased=0; persist(); render(); }
+
 function editDefaultReserve(){
   openSheet("Réserve par défaut","Valeur reprise sur chaque nouveau mois.",
     [{k:"amount",label:"Montant",type:"money",ph:"0,00"}], {amount:+S.defaultReserve||""},
@@ -759,6 +995,7 @@ function editWallet(id){
       S.transferTemplate.forEach(fixT); S.transferTemplate=S.transferTemplate.filter(t=>t.from!==t.to);
       for(const ym in S.months){ const M=S.months[ym];
         M.incomes.forEach(fix); M.fixed.forEach(fix); M.expenses.forEach(fix); M.moves.forEach(fix);
+        (M.refunds||[]).forEach(fix);
         M.transfers=(M.transfers||[]); M.transfers.forEach(fixT); M.transfers=M.transfers.filter(t=>t.from!==t.to); }
       S.wallets=S.wallets.filter(x=>x.id!==id); if(curW===id) curW=W0();
     }:null);
@@ -809,7 +1046,7 @@ function editExpense(id){
     d=>{ const a=num(d.amount); if(a<=0){toast("Indique un montant");return false;}
       if(it) Object.assign(it,{amount:a,category:d.category,label:d.label.trim(),day:clampDay(d.day)||todayDay(),wallet:d.wallet});
       else {
-        M.expenses.push({id:uid(),amount:a,category:d.category,label:d.label.trim(),day:clampDay(d.day)||todayDay(),wallet:d.wallet});
+        M.expenses.push({id:uid(),amount:a,category:d.category,label:d.label.trim(),day:clampDay(d.day)||todayDay(),wallet:d.wallet,seen:false});
         const s=stats(cur);
         toast(s.reserve>0
           ? (s.overRes>0
@@ -875,6 +1112,14 @@ function sweep(){
   if(st.reste<=0){ toast("Rien de disponible à verser"); return; }
   const best=S.wallets.map(w=>({w,r:stats(cur,w.id).libre})).sort((a,b)=>b.r-a.r)[0];
   editMove(null,{amount:st.reste.toFixed(2),wallet:best.w.id,label:"Épargne du mois"});
+}
+
+function editDefaultGrocery(){
+  openSheet("Provision hebdomadaire","Valeur reprise sur chaque nouveau mois.",
+    [{k:"amount",label:"Budget par semaine",type:"money",ph:"0,00"},
+     {k:"cat",label:"Catégorie suivie",type:"select",options:S.categories.map(c=>({v:c,t:c}))}],
+    {amount:+S.groceryWeekly||"", cat:S.groceryCat||S.categories[0]},
+    d=>{ S.groceryWeekly=num(d.amount); S.groceryCat=d.cat; });
 }
 
 function editCats(){
@@ -977,6 +1222,8 @@ function migrate(d){
   if(!Array.isArray(d.wallets)||!d.wallets.length) d.wallets=blank().wallets;
   if(!Array.isArray(d.transferTemplate)) d.transferTemplate=[];
   if(typeof d.defaultReserve!=="number") d.defaultReserve=0;
+  if(typeof d.groceryWeekly!=="number") d.groceryWeekly=0;
+  if(!d.groceryCat) d.groceryCat=(d.categories&&d.categories[0])||"Courses";
   const w0=d.wallets[0].id;
   const fix=o=>{ if(!o.wallet) o.wallet=w0; };
   (d.incomeTemplate||[]).forEach(fix); (d.fixedTemplate||[]).forEach(fix);
@@ -985,10 +1232,16 @@ function migrate(d){
     if(M.reserve===undefined) M.reserve = (typeof M.goal==="number"?M.goal:null);
     delete M.goal;
     if(!Array.isArray(M.transfers)) M.transfers=[];
+    if(!Array.isArray(M.refunds)) M.refunds=[];
+    if(!M.carry||typeof M.carry!=="object") M.carry={};
+    (M.expenses||[]).forEach(x=>{ if(x.seen===undefined) x.seen=true; });
+    (M.refunds||[]).forEach(x=>{ if(x.seen===undefined) x.seen=true; });
+    if(M.groceryWeekly===undefined) M.groceryWeekly=null;
+    if(typeof M.groceryReleased!=="number") M.groceryReleased=0;
     (M.incomes||[]).forEach(fix); (M.fixed||[]).forEach(fix);
     (M.expenses||[]).forEach(fix); (M.moves||[]).forEach(fix);
   }
-  d.v=3; return d;
+  d.v=5; return d;
 }
 
 /* ---------- navigation ---------- */
