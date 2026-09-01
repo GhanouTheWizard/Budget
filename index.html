@@ -874,9 +874,8 @@ function openSheet(title, lead, fields, values, onSave, onDelete){
         ${f.options.map(o=>`<button type="button" data-v="${esc(o.v)}" class="${String(v[f.k])===String(o.v)?"on":""}">${esc(o.t)}</button>`).join("")}</div></div>`;
       if(f.type==="select") return `<div class="f"><label>${esc(f.label)}</label><select data-k="${f.k}">
         ${f.options.map(o=>`<option value="${esc(o.v)}" ${v[f.k]==o.v?"selected":""}>${esc(o.t)}</option>`).join("")}</select></div>`;
-      const t=(f.type==="money"||f.type==="day")?"number":"text";
-      const extra=f.type==="money"?` step="0.01" inputmode="decimal" class="money"`:f.type==="day"?` step="1" min="1" max="31" inputmode="numeric"`:"";
-      return `<div class="f"><label>${esc(f.label)}</label><input type="${t}" data-k="${f.k}" value="${v[f.k]!=null?esc(v[f.k]):""}" placeholder="${esc(f.ph||"")}"${extra}></div>`;
+      const extra=f.type==="money"?` inputmode="decimal" autocomplete="off" class="money"`:f.type==="day"?` inputmode="numeric" autocomplete="off" maxlength="2"`:"";
+      return `<div class="f"><label>${esc(f.label)}</label><input type="text" data-k="${f.k}" value="${v[f.k]!=null?esc(v[f.k]):""}" placeholder="${esc(f.ph||"")}"${extra}></div>`;
     }).join("")
     +`<div class="btnrow" style="margin-top:16px">
       ${onDelete?`<button class="btn ghost" id="shDel" style="flex:0 0 40%">Supprimer</button>`:``}
@@ -898,8 +897,9 @@ function openSheet(title, lead, fields, values, onSave, onDelete){
   scrim.classList.add("open"); sheet.classList.add("open");
 }
 
-function num(x){ const n=parseFloat(String(x).replace(",",".")); return isNaN(n)?0:n; }
-function clampDay(x){ const d=parseInt(x,10); return isNaN(d)?null:Math.max(1,Math.min(31,d)); }
+function clean(x){ return String(x==null?"":x).replace(/[\s\u00a0\u202f€]/g,"").replace(",","."); }
+function num(x){ const n=parseFloat(clean(x)); return isNaN(n)?0:n; }
+function clampDay(x){ const d=parseInt(clean(x),10); return isNaN(d)?null:Math.max(1,Math.min(31,d)); }
 function todayDay(){ return cur===ymNow()?Math.min(new Date().getDate(),daysIn(cur)):1; }
 function wOpts(){ return S.wallets.map(w=>({v:w.id,t:w.name})); }
 function defW(){ return (tab==="comptes"?activeW():W0()); }
@@ -935,10 +935,13 @@ function editCarry(wid){
     pv
       ? `Ce qui restait sur ce compte à la fin de ${MONTHS[ymParts(pv.prev).m-1]}. Calculé par l'app : <b class="num">${eur(pv.out[wid]||0)}</b>. Corrige si ta banque affiche autre chose. Un montant négatif est accepté.`
       : `Solde réel de ce compte la veille du 1er du mois, avant l'arrivée des salaires et des prélèvements du mois. Un montant négatif est accepté si tu étais à découvert.`,
-    [{k:"amount",label:"Montant",type:"money",ph:"0,00"}],
-    {amount: (M.carry[wid]!=null&&M.carry[wid]!==0)?M.carry[wid]:""},
-    d=>{ const v=String(d.amount).trim();
-      if(v==="") delete M.carry[wid]; else M.carry[wid]=num(v);
+    [{k:"sign",label:"État du compte",type:"seg",options:[{v:"pos",t:"Créditeur"},{v:"neg",t:"À découvert"}]},
+     {k:"amount",label:"Montant",type:"money",ph:"0,00"}],
+    {sign: (M.carry[wid]!=null&&M.carry[wid]<0)?"neg":"pos",
+     amount: (M.carry[wid]!=null&&M.carry[wid]!==0)?Math.abs(M.carry[wid]):""},
+    d=>{ const v=clean(d.amount);
+      if(v===""){ delete M.carry[wid]; }
+      else { const a=Math.abs(num(v)); M.carry[wid]=(d.sign==="neg"?-a:a); }
       toast(`${esc(wn)} : ${eur0(M.carry[wid]||0)} au départ<br>Reste à mettre de côté ${eur0(stats(cur).reste)}`); });
 }
 
