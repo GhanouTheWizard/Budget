@@ -239,7 +239,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v5 · 1er octobre 2026";
+const APP_VERSION="v6 · 1er octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 const CCOL=["var(--c1)","var(--c2)","var(--c3)","var(--amber)","var(--ink-2)"];
@@ -589,8 +589,18 @@ function alerts(ym){
   const startsOk=S.accounts.every(a=>M.start[a.id]!=null);
   if(!startsOk) L.push({id:"start",lvl:"warn",title:"Soldes de départ à saisir",text:"Les alertes de découvert s'activent une fois les soldes du 1er notés dans Le mois."});
   if(startsOk) S.accounts.forEach(a=>{ const x=C.A[a.id], p=isNow?project(ym,a.id):null;
+    // ce qui doit encore arriver sur ce compte : virements prévus non faits, salaire et sommes attendus
+    const sum=(arr,f)=>arr.filter(f).reduce((s,o)=>s+(+o.amount||0),0);
+    const trIn=sum(M.transfers,t=>!t.done&&t.to===a.id), trOut=sum(M.transfers,t=>!t.done&&t.from===a.id);
+    const salIn=sum(M.salary,s=>!s.got&&s.account===a.id)+sum(M.receivables,s=>!s.got&&s.account===a.id);
+    const cover=trIn+salIn-trOut;
     if(x.real < -x.over) L.push({id:"over-"+a.id,lvl:"crit",title:`${a.name} au-delà du découvert`,text:`Le solde est à ${eur(x.real)} pour un découvert autorisé de ${eur0(x.over)}. Fais un virement dès aujourd'hui pour éviter les frais.`});
-    else if(p&&p.bad) L.push({id:"proj-"+a.id,lvl:"crit",title:`${a.name} : découvert dépassé le ${p.bad.day}`,text:`${p.bad.label} fera passer le compte à ${eur(p.bad.bal)}. Prévois un virement avant cette date.`});
+    else if(p&&p.bad){
+      if(p.bad.bal+cover >= -x.over){
+        const what=trIn>0?`le virement prévu de ${eur0(trIn)} depuis ${M.transfers.filter(t=>!t.done&&t.to===a.id).map(t=>accName(t.from)).join(", ")}`:`le salaire attendu (${eur0(salIn)})`;
+        L.push({id:"todo-"+a.id,lvl:"warn",title:`${a.name} : ${trIn>0?"virement à faire":"salaire attendu"} avant le ${p.bad.day}`,text:`Sans ${what}, ${p.bad.label} ferait passer le compte à ${eur(p.bad.bal)}.`});
+      } else L.push({id:"proj-"+a.id,lvl:"crit",title:`${a.name} : découvert dépassé le ${p.bad.day}`,text:`${p.bad.label} fera passer le compte à ${eur(p.bad.bal)}, et les rentrées prévues ne suffisent pas à le couvrir. Prévois un virement supplémentaire avant cette date.`});
+    }
     else if(x.real<0) L.push({id:"neg-"+a.id,lvl:"warn",title:`${a.name} à découvert`,text:`${eur(x.real)}, encore dans la limite autorisée.`});
   });
   if(C.courses>0){ if(C.spentCourses>C.courses) L.push({id:"courses",lvl:"crit",title:"Enveloppe courses épuisée",text:`${eur0(C.spentCourses)} dépensés pour ${eur0(C.courses)} prévus. Chaque course de plus sera prise sur l'épargne.`});
@@ -774,9 +784,13 @@ function vToday(){
     return `<div class="card acc" onclick="filFor('${a.id}')">
       <div class="top"><span class="dot" style="background:${accColor(a.id)}"></span><span class="nm">${esc(a.name)}</span>
         <span class="v ${x.real<0?"neg":""}">${eur(x.real)}</span></div>
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:-4px 0 4px">
+        <span style="font-size:13.5px;color:var(--ink-2)">Maintenant : <b class="num" style="color:${x.bank-x.pending<0?"var(--alert)":"var(--ink)"}">${eur(x.bank-x.pending)}</b></span>
+        <span class="eyebrow" style="font-size:9px">prévu fin de mois</span></div>
       ${gauge(x)}
       <div class="sub">
-        ${x.nPending?`<span>banque <b>${eur0(x.bank)}</b></span><span>en attente <b>${eur0(x.pending)}</b></span>`:`<span>tout est pointé</span>`}
+        ${!x.startSet?`<span style="color:var(--alert)">solde du 1er à saisir</span>`:``}
+        ${x.nPending?`<span>banque <b>${eur0(x.bank)}</b></span><span>en attente <b>${eur0(x.pending)}</b></span>`:``}
         ${x.sec>0?`<span>sécurité <b>${eur0(x.secLeft)}</b>${x.secOver?` <span class="pill r">dépassée</span>`:""}</span>`:``}
         ${x.chargesDue.length?`<span>à prélever <b>${eur0(x.chargesDue.reduce((s,c)=>s+(+c.amount||0),0))}</b></span>`:``}
       </div>
