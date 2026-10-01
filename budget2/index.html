@@ -9,7 +9,7 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="apple-mobile-web-app-title" content="Budget 2">
-<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="apple-touch-icon" href="icon-180.png?v=4">
 <style>
 :root{
   --ink:#1B2430; --ink-2:#465364; --ink-3:#7E8B99;
@@ -239,6 +239,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
+const APP_VERSION="v4 · 1er octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 const CCOL=["var(--c1)","var(--c2)","var(--c3)","var(--amber)","var(--ink-2)"];
@@ -434,7 +435,15 @@ function project(ym,aid){
 
 /* ================= rendu ================= */
 const view=document.getElementById("view");
-function render(){
+function render(){ try{ renderInner(); }catch(e){ showCrash(e); } }
+function showCrash(e){
+  console.error(e);
+  view.innerHTML=`<div class="alarm"><div class="kick">Erreur d'affichage</div><div class="tt" style="font-size:18px">Quelque chose a planté</div>
+    <div class="tx">Fais une capture de cet écran et envoie-la à Claude.<br><br><span style="font-family:var(--mono);font-size:12px">${esc(e&&e.message||e)}<br>${esc(String(e&&e.stack||"").split("\n").slice(0,3).join(" / "))}<br>${APP_VERSION}</span></div></div>
+    <button class="btn ghost" onclick="tab='reglages';render()">Ouvrir les réglages (export / import)</button>`;
+}
+window.addEventListener("error",ev=>{ if(ev&&ev.message&&!/ServiceWorker/i.test(ev.message)) toast("Erreur : "+esc(ev.message)); });
+function renderInner(){
   const {y,m}=ymParts(cur);
   document.getElementById("mLabel").textContent=MONTHS[m-1]+" "+y;
   document.getElementById("mSub").textContent=isCur()?"mois en cours":(cur<ymNow()?"mois passé":"mois à venir");
@@ -1024,7 +1033,7 @@ function vReglages(){
     <div class="hint" style="margin:6px 0 12px">Efface tout, sans retour possible.</div>
     <button class="btn sm danger" onclick="wipe()">Tout effacer</button>
   </div>
-  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget 2 · données locales · aucun serveur</div>`;
+  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget 2 · ${APP_VERSION} · données locales · aucun serveur</div>`;
 }
 
 /* ================= feuille modale ================= */
@@ -1314,10 +1323,24 @@ function toggleCharge(id){ const c=month(cur).charges.find(x=>x.id===id); if(c){
 
 /* ================= sauvegarde / import ================= */
 function exportData(){ const blob=new Blob([JSON.stringify(S,null,2)],{type:"application/json"}); const a=document.createElement("a"); a.href=URL.createObjectURL(blob); a.download="budget2-"+ymNow()+".json"; document.body.appendChild(a); a.click(); a.remove(); setTimeout(()=>URL.revokeObjectURL(a.href),4000); toast("Fichier créé"); }
-function importData(){ const inp=document.createElement("input"); inp.type="file"; inp.accept="application/json,.json";
-  inp.onchange=()=>{ const f=inp.files[0]; if(!f)return; const r=new FileReader(); r.onload=()=>{ try{ const d=JSON.parse(r.result);
-    if(d&&d.wallets){ S=fromBudget1(d); toast("Budget 1 converti"); } else if(d&&d.accounts&&d.months){ S=migrate(Object.assign(blank(),d)); toast("Sauvegarde restaurée"); } else throw 0;
-    persist(); render(); }catch(e){ toast("Fichier illisible"); } }; r.readAsText(f); }; inp.click(); }
+function importData(){ const inp=document.createElement("input"); inp.type="file"; inp.accept=".json,application/json,text/plain,public.json";
+  inp.style.display="none"; document.body.appendChild(inp);
+  inp.onchange=()=>{ const f=inp.files[0]; inp.remove(); if(!f)return; const r=new FileReader();
+    r.onerror=()=>toast("Impossible d'ouvrir le fichier. Réessaie depuis l'app Fichiers.");
+    r.onload=()=>{
+      // 1. lecture : on tolère le BOM, les espaces et un éventuel texte autour du JSON
+      let txt=String(r.result||"").replace(/^﻿/,"").trim(), d=null;
+      try{ d=JSON.parse(txt); }catch(e){ const a=txt.indexOf("{"), b=txt.lastIndexOf("}"); if(a>=0&&b>a){ try{ d=JSON.parse(txt.slice(a,b+1)); }catch(e2){} } }
+      if(!d){ toast(`Ce fichier n'est pas une sauvegarde (${esc(f.name)}, ${Math.round(f.size/1024)} Ko).<br>Choisis le fichier .json exporté par l'app.`); return; }
+      // 2. conversion
+      let N=null;
+      try{ if(d.wallets) N=fromBudget1(d); else if(d.accounts&&d.months) N=migrate(Object.assign(blank(),d)); }catch(e){ toast("Sauvegarde reconnue mais conversion impossible : "+esc(e.message)); return; }
+      if(!N){ toast("Fichier JSON lu, mais ce n'est pas une sauvegarde Budget."); return; }
+      // 3. on enregistre tout de suite, l'affichage vient après
+      S=N; Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
+      try{ render(); }catch(e){ showCrash(e); }
+    }; r.readAsText(f); };
+  inp.click(); }
 function wipe(){ openSheet("Tout effacer","Définitif.",[{k:"c",label:"Tape EFFACER",type:"text"}],{},d=>{ if(d.c.trim().toUpperCase()!=="EFFACER"){toast("Confirmation incorrecte");return false;} S=blank(); cur=ymNow(); tab="reglages"; }); }
 function migrate(d){ if(!d.defaults) d.defaults=blank().defaults; if(!d.categories||!d.categories.length) d.categories=blank().categories; d.accounts.forEach(a=>{ if(a.overdraft==null) a.overdraft=150; });
   for(const ym in d.months){ const M=d.months[ym]; M.steps=M.steps||{depart:false,repartition:false,cloture:false}; ["salary","receivables","charges","transfers","ops","moves"].forEach(k=>{ if(!Array.isArray(M[k])) M[k]=[]; }); M.start=M.start||{}; M.securite=M.securite||{}; } return d; }
@@ -1355,7 +1378,7 @@ document.getElementById("fab").onclick=()=>{ if(tab==="epargne") editMove(); els
 (async function init(){
   const saved=await Store.load(); if(saved) S=migrate(Object.assign(blank(),saved));
   month(cur); render();
-  if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js"); }catch(e){} }
+  if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}); }catch(e){} }
 })();
 </script>
 </body>
