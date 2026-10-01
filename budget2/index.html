@@ -263,7 +263,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v8 · 1er octobre 2026";
+const APP_VERSION="v9 · 1er octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -763,6 +763,56 @@ function envRow(name,s,b,minus,plus,edit,sub){
     <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(s)} dépensés · reste ${eur0(Math.max(0,b-s))}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(s/b*100)+" %"}</span></div>`
       :`<div class="hint" style="margin-top:4px">${eur0(s)} dépensés · pas de plafond, touche + pour en mettre un</div>`}</div>`;
 }
+/* ================= proposition de répartition (octobre 2026) ================= */
+const PROP={id:"2026-10",courses:380,caps:{"c-resto":70,"c-carb":60,"c-transp":50,"c-sante":50,"c-livres":20,"c-vet":15,"c-cadeaux":15,"c-divers":30},
+  billets:{name:"Billets Lille – fêtes",amount:180,buy:"2026-10",by:15}, noel:{name:"Cadeaux de Noël",amount:150,start:"2026-11",buy:"2026-12"}};
+function propState(){ return S.prop||""; }
+function propCard(where){
+  const st=propState();
+  if(st==="dismiss") return "";
+  if(st==="applied") return where==="env"?`<div class="banner info" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Proposition appliquée. Ajuste librement avec − et +.</span>${S.propUndo?`<button class="act" style="color:var(--teal);font-weight:650;flex:none" onclick="undoProp()">Annuler</button>`:""}</div>`:"";
+  if(where==="today") return `<div class="card" style="border-color:var(--teal)"><span class="eyebrow" style="color:var(--teal)">Répartition proposée</span>
+    <div style="font-size:14px;line-height:1.5;margin-bottom:10px">Une répartition d'octobre qui intègre les billets de Lille et garde environ 80 € de marge.</div>
+    <button class="btn sm teal" onclick="go('env')">Voir la proposition</button></div>`;
+  const C=calc(cur), rows=[["Courses",C.courses,PROP.courses]].concat(Object.keys(PROP.caps).map(id=>[cat(id).name,+cat(id).budget||0,PROP.caps[id]]));
+  const capsNew=Object.values(PROP.caps).reduce((a,b)=>a+b,0), income=C.startTot+C.salaryTot+C.recvTot+C.extraTot;
+  const marge=income-C.fixed-PROP.courses-C.repas-capsNew-PROP.billets.amount;
+  return `<div class="card" style="border-color:var(--teal)">
+    <span class="eyebrow" style="color:var(--teal)">Répartition proposée pour être à l'aise</span>
+    <div class="calc">
+      <div class="l head"><span class="n">Enveloppe</span><span class="n" style="font-family:var(--mono);font-size:10px;letter-spacing:.1em;color:var(--ink-3)">ACTUEL → PROPOSÉ</span></div>
+      ${rows.map(r=>`<div class="l"><span class="n">${esc(r[0])}</span><span class="a"><span style="color:var(--ink-3);font-weight:500">${eur0(r[1])}</span> → ${eur0(r[2])}</span></div>`).join("")}
+      <div class="l"><span class="n">Projet : ${esc(PROP.billets.name)}<small>à acheter en octobre, avant le ${PROP.billets.by} (montant à ajuster au vrai prix)</small></span><span class="a">${eur0(PROP.billets.amount)}</span></div>
+      <div class="l res"><span class="n">Marge du mois</span><span class="a ${marge<0?"minus":"plus"}">${marge>=0?"+":""}${eur(marge)}</span></div>
+    </div>
+    <div class="hint">Restos et snacks : environ un repas dehors par semaine. Livres : un par mois, le reste à la médiathèque. Garde la marge sur le compte jusqu'au 31, puis verse ce qui reste sur le LEP.</div>
+    <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:14px;line-height:1.4"><input type="checkbox" id="propNoel" checked style="width:20px;height:20px;flex:none;margin-top:1px">
+      <span>Ajouter aussi <b>Cadeaux de Noël, 150 €</b> mis de côté en novembre et décembre (75 € par mois)</span></label>
+    <div class="btnrow" style="margin-top:12px"><button class="btn sm ghost" onclick="S.prop='dismiss';persist();render()">Non merci</button><button class="btn sm teal" onclick="applyProp()">Appliquer</button></div>
+  </div>`;
+}
+function applyProp(){
+  const noel=(document.getElementById("propNoel")||{}).checked!==false;
+  if(S.plan!==PLAN_ID) applyPlan();
+  const M=month(cur);
+  S.propUndo=JSON.stringify({caps:S.categories.map(c=>[c.id,c.budget||0]),courses:M.courses,dcourses:S.defaults.courses,projects:projList()});
+  Object.keys(PROP.caps).forEach(id=>{ const c=S.categories.find(x=>x.id===id); if(c) c.budget=PROP.caps[id]; });
+  M.courses=PROP.courses; S.defaults.courses=PROP.courses; for(const ym in S.months) if(ym>cur) S.months[ym].courses=PROP.courses;
+  const ca=S.defaults.coursesAccount||A0(), tr=(S.categories.find(c=>c.id==="c-transp")||S.categories[0]).id, gi=(S.categories.find(c=>c.id==="c-cadeaux")||S.categories[0]).id;
+  let b=projList().find(p=>/lille/i.test(p.name)&&!projDone(p,cur));
+  if(b) Object.assign(b,{amount:PROP.billets.amount,buy:PROP.billets.buy,by:PROP.billets.by});
+  else projList().push({id:uid(),name:PROP.billets.name,amount:PROP.billets.amount,start:cur,buy:PROP.billets.buy,by:PROP.billets.by,account:ca,cat:tr,status:"open"});
+  if(noel && !projList().some(p=>/no[eë]l/i.test(p.name)&&!projDone(p,cur)))
+    projList().push({id:uid(),name:PROP.noel.name,amount:PROP.noel.amount,start:PROP.noel.start,buy:PROP.noel.buy,by:null,account:ca,cat:gi,status:"open"});
+  syncSec(); refreshProposals(); S.prop="applied"; persist(); render();
+  toast(`Répartition appliquée<br>Épargne possible ce mois : ${eur0(calc(cur).reste)}`);
+}
+function undoProp(){
+  if(!S.propUndo) return; const u=JSON.parse(S.propUndo), M=month(cur);
+  u.caps.forEach(([id,b])=>{ const c=S.categories.find(x=>x.id===id); if(c) c.budget=b; });
+  M.courses=u.courses; S.defaults.courses=u.dcourses; S.projects=u.projects;
+  syncSec(); refreshProposals(); S.prop=""; delete S.propUndo; persist(); render(); toast("Répartition précédente rétablie");
+}
 function vEnv(){
   const M=month(cur), C=calc(cur);
   const income=C.salaryTot+C.recvTot+C.extraTot, start=C.startTot;
@@ -770,7 +820,7 @@ function vEnv(){
   const left=start+income-C.fixed-C.courses-C.repas-caps-projNeedTot;
   const cats=S.categories.filter(c=>c.pocket==="securite");
   const open=projList().filter(p=>!projDone(p,cur)), done=projList().filter(p=>projDone(p,cur)&&p.doneYm===cur);
-  return `
+  return (cur===PROP.id?propCard("env"):"")+`
   <div class="card">
     <span class="eyebrow">Répartition de ${MONTHS[ymParts(cur).m-1]}</span>
     <div class="calc">
@@ -1024,6 +1074,7 @@ function vToday(){
     <button onclick="quickTransfer()"><span class="i" style="background:var(--indigo)">⇄</span>Virement</button>
     <button onclick="addSalary()"><span class="i" style="background:var(--teal)">€</span>Salaire</button>
   </div>
+  ${cur===PROP.id&&S.plan===PLAN_ID?propCard("today"):""}
   ${todoTransfers(M)}
   ${cards}
   ${salaryCard(M,C)}
