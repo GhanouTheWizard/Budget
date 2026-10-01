@@ -263,7 +263,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v9 · 1er octobre 2026";
+const APP_VERSION="v10 · 1er octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -353,7 +353,7 @@ function month(ym){
       courses:+S.defaults.courses||0, repasCount:+S.defaults.repasCount||0, repasUnit:+S.defaults.repasUnit||20,
       securite:Object.assign({},S.defaults.securite||{}), close:null
     };
-    M.charges=S.recurring.map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category,paid:false}));
+    M.charges=S.recurring.filter(t=>!t.until||ym<=t.until).map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category,paid:false}));
     if(S.defaults.salaryLabel) M.salary.push({id:uid(),label:S.defaults.salaryLabel,amount:0,account:S.defaults.salaryAccount||A0(),got:false});
     if(prev && prev.close){
       S.accounts.forEach(a=>{ if(prev.close[a.id]!=null) M.start[a.id]=prev.close[a.id]; });
@@ -466,12 +466,19 @@ function needs(ym){
   });
   return out;
 }
+function hubAccount(){ return S.defaults.hubAccount||S.defaults.coursesAccount||A0(); }
 function proposeTransfers(ym){
-  const M=month(ym), N=needs(ym), src=S.defaults.salaryAccount||A0();
+  const M=month(ym), N=needs(ym), src=S.defaults.salaryAccount||A0(), hub=hubAccount();
   const keep=M.transfers.filter(t=>t.done||t.manual), net={};
   keep.forEach(t=>{ net[t.to]=(net[t.to]||0)+(+t.amount||0); net[t.from]=(net[t.from]||0)-(+t.amount||0); });
-  const list=[];
-  S.accounts.forEach(a=>{ if(a.id===src) return; const g=r2(N[a.id].gap-(net[a.id]||0)); if(g>0.005) list.push({id:uid(),from:src,to:a.id,amount:g,done:false}); });
+  const list=[], gap=id=>Math.max(0,r2(N[id].gap-(net[id]||0)));
+  if(hub===src){ S.accounts.forEach(a=>{ if(a.id===src) return; const g=gap(a.id); if(g>0.005) list.push({id:uid(),from:src,to:a.id,amount:g,done:false}); }); }
+  else {
+    // tout passe par le compte commun : salaire → commun (pour lui + pour les autres comptes), puis commun → chaque autre compte
+    const others=S.accounts.filter(a=>a.id!==src&&a.id!==hub), relay=others.reduce((t,a)=>t+gap(a.id),0), toHub=r2(gap(hub)+relay);
+    if(toHub>0.005) list.push({id:uid(),from:src,to:hub,amount:toHub,done:false});
+    others.forEach(a=>{ const g=gap(a.id); if(g>0.005) list.push({id:uid(),from:hub,to:a.id,amount:g,done:false}); });
+  }
   M.transfers=keep.concat(list); M.steps.repartition=false; persist();
 }
 
@@ -623,6 +630,16 @@ function capsCard(C){
 
 /* montants à jour des prélèvements (donnés le 1er octobre 2026) */
 const AMOUNTS_OCT={"total énergie":131,"total energie":131,"box meubles":140,"bouygue":18,"bouygues":18};
+function fixOct2Once(){
+  if(S.fixOct2==="2026-10-01c") return;
+  const elle=S.accounts.find(a=>a.id==="w-elle")||S.accounts.find(a=>/\(e\)|femme|elle/i.test(a.name));
+  if(elle && !S.recurring.some(t=>Math.abs(t.amount-123.2)<0.005&&t.account===elle.id)){
+    const t={id:uid(),label:"Lunettes (paiement échelonné)",amount:123.2,day:4,account:elle.id,category:"Santé",until:"2026-12"};
+    S.recurring.push(t); spreadRecurring(t); }
+  const cm=ymNow(), M=S.months[cm];
+  if(M&&M.steps.depart&&(M.transfers.some(t=>!t.done&&!t.manual)||!M.transfers.length)) proposeTransfers(cm);
+  S.fixOct2="2026-10-01c"; persist();
+}
 function fixAmountsOnce(){
   if(S.fixOct==="2026-10-01b") return;
   S.recurring.forEach(t=>{ const v=AMOUNTS_OCT[t.label.trim().toLowerCase()]; if(v==null) return; t.amount=v;
@@ -764,15 +781,15 @@ function envRow(name,s,b,minus,plus,edit,sub){
       :`<div class="hint" style="margin-top:4px">${eur0(s)} dépensés · pas de plafond, touche + pour en mettre un</div>`}</div>`;
 }
 /* ================= proposition de répartition (octobre 2026) ================= */
-const PROP={id:"2026-10",courses:380,caps:{"c-resto":70,"c-carb":60,"c-transp":50,"c-sante":50,"c-livres":20,"c-vet":15,"c-cadeaux":15,"c-divers":30},
+const PROP={id:"2026-10",v:"2026-10b",courses:360,caps:{"c-resto":60,"c-carb":50,"c-transp":40,"c-sante":30,"c-livres":15,"c-vet":10,"c-cadeaux":10,"c-divers":25},
   billets:{name:"Billets Lille – fêtes",amount:180,buy:"2026-10",by:15}, noel:{name:"Cadeaux de Noël",amount:150,start:"2026-11",buy:"2026-12"}};
-function propState(){ return S.prop||""; }
+function propState(){ const v=S.prop||""; return v===PROP.v+":applied"?"applied":v===PROP.v+":dismiss"?"dismiss":""; }
 function propCard(where){
   const st=propState();
   if(st==="dismiss") return "";
   if(st==="applied") return where==="env"?`<div class="banner info" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Proposition appliquée. Ajuste librement avec − et +.</span>${S.propUndo?`<button class="act" style="color:var(--teal);font-weight:650;flex:none" onclick="undoProp()">Annuler</button>`:""}</div>`:"";
   if(where==="today") return `<div class="card" style="border-color:var(--teal)"><span class="eyebrow" style="color:var(--teal)">Répartition proposée</span>
-    <div style="font-size:14px;line-height:1.5;margin-bottom:10px">Une répartition d'octobre qui intègre les billets de Lille et garde environ 80 € de marge.</div>
+    <div style="font-size:14px;line-height:1.5;margin-bottom:10px">Une répartition d'octobre qui intègre les billets de Lille et l'échéance de 123,20 €, et garde le mois dans le vert.</div>
     <button class="btn sm teal" onclick="go('env')">Voir la proposition</button></div>`;
   const C=calc(cur), rows=[["Courses",C.courses,PROP.courses]].concat(Object.keys(PROP.caps).map(id=>[cat(id).name,+cat(id).budget||0,PROP.caps[id]]));
   const capsNew=Object.values(PROP.caps).reduce((a,b)=>a+b,0), income=C.startTot+C.salaryTot+C.recvTot+C.extraTot;
@@ -785,10 +802,10 @@ function propCard(where){
       <div class="l"><span class="n">Projet : ${esc(PROP.billets.name)}<small>à acheter en octobre, avant le ${PROP.billets.by} (montant à ajuster au vrai prix)</small></span><span class="a">${eur0(PROP.billets.amount)}</span></div>
       <div class="l res"><span class="n">Marge du mois</span><span class="a ${marge<0?"minus":"plus"}">${marge>=0?"+":""}${eur(marge)}</span></div>
     </div>
-    <div class="hint">Restos et snacks : environ un repas dehors par semaine. Livres : un par mois, le reste à la médiathèque. Garde la marge sur le compte jusqu'au 31, puis verse ce qui reste sur le LEP.</div>
+    <div class="hint">Mise à jour avec l'échéance de 123,20 € sur le compte de ta femme jusqu'en décembre : octobre est serré, d'où des enveloppes plus basses. Santé baisse car les lunettes sont déjà comptées dans les prélèvements. Restos et snacks : un repas dehors toutes les deux semaines environ. Garde la marge sur le compte jusqu'au 31.</div>
     <label style="display:flex;gap:10px;align-items:flex-start;margin-top:12px;font-size:14px;line-height:1.4"><input type="checkbox" id="propNoel" checked style="width:20px;height:20px;flex:none;margin-top:1px">
       <span>Ajouter aussi <b>Cadeaux de Noël, 150 €</b> mis de côté en novembre et décembre (75 € par mois)</span></label>
-    <div class="btnrow" style="margin-top:12px"><button class="btn sm ghost" onclick="S.prop='dismiss';persist();render()">Non merci</button><button class="btn sm teal" onclick="applyProp()">Appliquer</button></div>
+    <div class="btnrow" style="margin-top:12px"><button class="btn sm ghost" onclick="S.prop=PROP.v+':dismiss';persist();render()">Non merci</button><button class="btn sm teal" onclick="applyProp()">Appliquer</button></div>
   </div>`;
 }
 function applyProp(){
@@ -804,7 +821,7 @@ function applyProp(){
   else projList().push({id:uid(),name:PROP.billets.name,amount:PROP.billets.amount,start:cur,buy:PROP.billets.buy,by:PROP.billets.by,account:ca,cat:tr,status:"open"});
   if(noel && !projList().some(p=>/no[eë]l/i.test(p.name)&&!projDone(p,cur)))
     projList().push({id:uid(),name:PROP.noel.name,amount:PROP.noel.amount,start:PROP.noel.start,buy:PROP.noel.buy,by:null,account:ca,cat:gi,status:"open"});
-  syncSec(); refreshProposals(); S.prop="applied"; persist(); render();
+  syncSec(); refreshProposals(); S.prop=PROP.v+":applied"; persist(); render();
   toast(`Répartition appliquée<br>Épargne possible ce mois : ${eur0(calc(cur).reste)}`);
 }
 function undoProp(){
@@ -1319,7 +1336,7 @@ function vReglages(){
   <div class="card">
     <div class="sec"><span class="eyebrow">Prélèvements récurrents</span><button class="act" onclick="editRecurring()">Ajouter</button></div>
     ${S.recurring.length?S.recurring.slice().sort((a,b)=>(a.day||99)-(b.day||99)).map(t=>`<div class="row" onclick="editRecurring('${t.id}')"><div class="day">${t.day||"?"}<small>jour</small></div>
-      <div class="body"><div class="t">${esc(t.label)}</div><div class="s"><span class="dot" style="background:${accColor(t.account)}"></span>${esc(accName(t.account))} · ${esc(t.category||"")}</div></div><div class="amt">${eur(t.amount)}</div></div>`).join("")
+      <div class="body"><div class="t">${esc(t.label)}</div><div class="s"><span class="dot" style="background:${accColor(t.account)}"></span>${esc(accName(t.account))} · ${esc(t.category||"")}${t.until?` · jusqu'en ${MSHORT[ymParts(t.until).m-1]}`:""}</div></div><div class="amt">${eur(t.amount)}</div></div>`).join("")
       :`<div class="empty"><b>Rien de déclaré.</b>Loyer, crédit, assurances, énergie, box, abonnements.</div>`}
     <div class="hint">Total : <b class="num">${eur(S.recurring.reduce((a,x)=>a+(+x.amount||0),0))}</b> par mois.</div>
     ${(()=>{ const g={}; S.recurring.forEach(t=>{ const k=t.category||"Autre"; g[k]=(g[k]||0)+(+t.amount||0); });
@@ -1558,6 +1575,12 @@ function quickTransfer(pre){
         toast(tk==="s"?`+${eur(amt)} sur ${esc(sv?sv.name:"le livret")}<br>Épargne totale ${eur0(savingsTotal())}`:`${eur(amt)} repris sur ${esc(sv?sv.name:"le livret")} → ${esc(accName(aid))}`);
         return;
       }
+      const hub=hubAccount();
+      if(fid!==hub&&tid!==hub&&S.accounts.some(a=>a.id===hub)){
+        [[fid,hub],[hub,tid]].forEach(([f,t2])=>{ const pl=M.transfers.find(t=>!t.done&&t.from===f&&t.to===t2);
+          if(pl&&Math.abs(pl.amount-amt)<0.005){ pl.done=true; pl.day=day; } else M.transfers.push({id:uid(),from:f,to:t2,amount:amt,done:true,manual:true,day,label:lbl}); });
+        toast(`${eur(amt)} · ${esc(accName(fid))} → ${esc(accName(hub))} → ${esc(accName(tid))}<br>Passé par le compte commun`); return;
+      }
       // si c'est un virement que l'app avait proposé, on le marque fait au lieu d'en créer un deuxième
       const plan=M.transfers.find(t=>!t.done&&t.from===fid&&t.to===tid);
       if(plan){ plan.amount=amt; plan.done=true; plan.day=day; if(lbl) plan.label=lbl; }
@@ -1636,17 +1659,28 @@ function editDefaults(){
     o=>{ d.salaryLabel=o.salaryLabel.trim()||"Salaire"; d.salaryAccount=o.salaryAccount; d.coursesAccount=o.coursesAccount; d.courses=num(o.courses); d.repasCount=Math.max(0,Math.round(num(o.repasCount))); d.repasUnit=num(o.repasUnit);
       d.securite={}; S.accounts.forEach(a=>{ const v=num(o["sec_"+a.id]); if(v) d.securite[a.id]=v; }); });
 }
+/* (re)pose un prélèvement récurrent sur les mois à venir, en respectant sa date de fin */
+function spreadRecurring(t){
+  for(const ym in S.months){ if(ym<ymNow()) continue; const M=S.months[ym];
+    if(t.until&&ym>t.until){ M.charges=M.charges.filter(c=>c.tplId!==t.id||c.paid); continue; }
+    const c=M.charges.find(c=>c.tplId===t.id);
+    if(c){ if(!c.paid) Object.assign(c,{label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category}); }
+    else M.charges.push({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category,paid:false}); }
+}
 function editRecurring(id){
-  const it=id?S.recurring.find(x=>x.id===id):null;
-  openSheet(it?"Modifier le prélèvement":"Prélèvement récurrent","Recopié sur chaque nouveau mois.",
+  const it=id?S.recurring.find(x=>x.id===id):null, ends=[{v:"",t:"Sans fin"}];
+  for(let i=0;i<24;i++){ const ym=ymShift(ymNow(),i); ends.push({v:ym,t:MSHORT[ymParts(ym).m-1]+(ymParts(ym).y!==ymParts(ymNow()).y?" "+String(ymParts(ym).y).slice(2):"")}); }
+  openSheet(it?"Modifier le prélèvement":"Prélèvement récurrent","Recopié sur chaque nouveau mois, jusqu'au mois de fin si tu en choisis un (paiement en plusieurs fois, crédit qui se termine…).",
     [{k:"label",label:"Intitulé",type:"text",ph:"Loyer"},{k:"amount",label:"Montant",type:"money"},{k:"day",label:"Jour du mois",type:"day",ph:"5"},
      {k:"account",label:"Prélevé sur",type:"seg",options:accOpts()},
-     {k:"category",label:"Nature",type:"chips",options:["Logement","Crédit","Énergie","Assurance","Télécom","Abonnement","Impôts","Transport","Santé","Autre"].map(x=>({v:x,t:x}))}],
-    it||{label:"",amount:"",day:5,account:A0(),category:"Abonnement"},
-    d=>{ if(!d.label.trim()){toast("Il manque l'intitulé");return false;} const o={label:d.label.trim(),amount:num(d.amount),day:clampDay(d.day),account:d.account,category:d.category};
-      if(it){ Object.assign(it,o); for(const ym in S.months) if(ym>=ymNow()) S.months[ym].charges.filter(c=>c.tplId===it.id).forEach(c=>Object.assign(c,{label:o.label,amount:o.amount,day:o.day,account:o.account,category:o.category})); }
-      else { const t=Object.assign({id:uid()},o); S.recurring.push(t); for(const ym in S.months) if(ym>=ymNow()&&!S.months[ym].charges.some(c=>c.tplId===t.id)) S.months[ym].charges.push({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category,paid:false}); } },
-    it?()=>{ S.recurring=S.recurring.filter(x=>x.id!==id); for(const ym in S.months) if(ym>=ymNow()) S.months[ym].charges=S.months[ym].charges.filter(c=>c.tplId!==id); }:null);
+     {k:"category",label:"Nature",type:"chips",options:["Logement","Crédit","Énergie","Assurance","Télécom","Abonnement","Impôts","Transport","Santé","Autre"].map(x=>({v:x,t:x}))},
+     {k:"until",label:"Dernier mois prélevé",type:"chips",options:ends}],
+    it?Object.assign({},it,{until:it.until||""}):{label:"",amount:"",day:5,account:A0(),category:"Abonnement",until:""},
+    d=>{ if(!d.label.trim()){toast("Il manque l'intitulé");return false;} const o={label:d.label.trim(),amount:num(d.amount),day:clampDay(d.day),account:d.account,category:d.category,until:d.until||null};
+      let t=it; if(t) Object.assign(t,o); else { t=Object.assign({id:uid()},o); S.recurring.push(t); }
+      spreadRecurring(t); refreshProposals();
+      if(t.until) toast(`${esc(t.label)} : ${eur(t.amount)} par mois jusqu'en ${MONTHS[ymParts(t.until).m-1]}`); },
+    it?()=>{ S.recurring=S.recurring.filter(x=>x.id!==id); for(const ym in S.months) if(ym>=ymNow()) S.months[ym].charges=S.months[ym].charges.filter(c=>c.tplId!==id||c.paid); refreshProposals(); }:null);
 }
 function editCategory(id){
   const it=id?S.categories.find(c=>c.id===id):null;
@@ -1696,7 +1730,7 @@ function importData(){ const inp=document.createElement("input"); inp.type="file
       try{ if(d.wallets) N=fromBudget1(d); else if(d.accounts&&d.months) N=migrate(Object.assign(blank(),d)); }catch(e){ toast("Sauvegarde reconnue mais conversion impossible : "+esc(e.message)); return; }
       if(!N){ toast("Fichier JSON lu, mais ce n'est pas une sauvegarde Budget."); return; }
       // 3. on enregistre tout de suite, l'affichage vient après
-      S=N; fixAmountsOnce(); Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
+      S=N; fixAmountsOnce(); fixOct2Once(); Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
       try{ render(); }catch(e){ showCrash(e); }
     }; r.readAsText(f); };
   inp.click(); }
@@ -1735,7 +1769,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>go(b.dataset.ta
 document.getElementById("fab").onclick=()=>{ if(tab==="epargne") editMove(); else editOp(); };
 
 (async function init(){
-  const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); }
+  const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); fixOct2Once(); }
   month(cur); render();
   if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}); }catch(e){} }
 })();
