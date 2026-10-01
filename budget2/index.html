@@ -239,7 +239,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v4 · 1er octobre 2026";
+const APP_VERSION="v5 · 1er octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
 const CCOL=["var(--c1)","var(--c2)","var(--c3)","var(--amber)","var(--ink-2)"];
@@ -530,6 +530,14 @@ function capsCard(C){
   </div>`;
 }
 
+/* montants à jour des prélèvements (donnés le 1er octobre 2026) */
+const AMOUNTS_OCT={"total énergie":131,"total energie":131,"box meubles":140,"bouygue":18,"bouygues":18};
+function fixAmountsOnce(){
+  if(S.fixOct==="2026-10-01b") return;
+  S.recurring.forEach(t=>{ const v=AMOUNTS_OCT[t.label.trim().toLowerCase()]; if(v==null) return; t.amount=v;
+    for(const ym in S.months) if(ym>="2026-10") S.months[ym].charges.forEach(c=>{ if(c.tplId===t.id&&!c.paid) c.amount=v; }); });
+  S.fixOct="2026-10-01b"; persist();
+}
 /* plan d'octobre 2026 (recommandations de l'analyse de septembre) */
 const PLAN_ID="2026-10";
 function planBanner(){
@@ -539,7 +547,7 @@ function planBanner(){
     <span class="eyebrow" style="color:var(--teal)">Plan d'octobre prêt</span>
     <div style="font-size:14px;line-height:1.5;margin-bottom:12px">
       Plafonds par catégorie (restos et snacks 100 €, déplacements 150 €, santé 60 €, livres 40 €, divers 60 €), courses à 400 €,
-      Total Énergie à 145 € et Bouygues à 18 €, et les virements internes de septembre rangés comme de vrais virements.
+      Total Énergie à 131 €, Box meubles à 140 € et Bouygues à 18 €, et les virements internes de septembre rangés comme de vrais virements.
     </div>
     <div class="btnrow"><button class="btn sm ghost" onclick="dismissPlan()">Plus tard</button><button class="btn sm teal" onclick="applyPlan()">Appliquer</button></div>
   </div>`;
@@ -554,7 +562,7 @@ function applyPlan(){
   const secTot=Object.values(caps).reduce((a,b)=>a+b,0), ca=S.defaults.coursesAccount||A0();
   S.defaults.courses=400; S.defaults.securite=S.defaults.securite||{}; S.defaults.securite[ca]=secTot;
   // montants réels des prélèvements
-  const fix={"total énergie":145,"bouygue":18,"bouygues":18};
+  const fix=AMOUNTS_OCT;
   S.recurring.forEach(t=>{ const v=fix[t.label.trim().toLowerCase()]; if(v!=null){ t.amount=v;
     for(const ym in S.months) if(ym>=PLAN_ID) S.months[ym].charges.forEach(c=>{ if(c.tplId===t.id && !c.paid) c.amount=v; }); } });
   for(const ym in S.months){ if(ym<PLAN_ID) continue; const M=S.months[ym]; M.courses=400; M.securite=M.securite||{}; M.securite[ca]=secTot; }
@@ -787,7 +795,8 @@ function vToday(){
   ${capsCard(C)}
   ${upcoming.length?`<div class="card">
     <div class="sec"><span class="eyebrow">Prochains prélèvements</span><button class="act" onclick="go('mois')">Tout voir</button></div>
-    ${upcoming.map(c=>`<div class="row"><div class="day">${c.day||"?"}<small>jour</small></div>
+    <div class="hint" style="margin:-4px 0 4px">Touche une ligne pour changer son montant.</div>
+    ${upcoming.map(c=>`<div class="row" onclick="editCharge('${c.id}')"><div class="day">${c.day||"?"}<small>jour</small></div>
       <div class="body"><div class="t">${esc(c.label)}</div><div class="s"><span class="dot" style="background:${accColor(c.account)}"></span>${esc(accName(c.account))}</div></div>
       <div class="amt">${eur(c.amount)}</div></div>`).join("")}
   </div>`:``}
@@ -889,11 +898,12 @@ function vMois(){
 
   <div class="card">
     <div class="sec"><span class="eyebrow">Prélèvements du mois</span><button class="act" onclick="editCharge()">Ajouter</button></div>
+    <div class="hint" style="margin:-4px 0 4px">Touche une ligne pour modifier son montant : pour ce mois seulement (dépassement, régularisation) ou pour les mois suivants (nouveau tarif).</div>
     ${M.charges.length? M.charges.slice().sort((a,b)=>(a.day||99)-(b.day||99)).map(c=>`<div class="row ${c.paid?"done":""}">
       <button class="chk sq ${c.paid?"on":""}" onclick="toggleCharge('${c.id}')">✓</button>
       <div class="day">${c.day||"?"}<small>jour</small></div>
       <div class="body" onclick="editCharge('${c.id}')"><div class="t">${esc(c.label)}</div><div class="s"><span class="dot" style="background:${accColor(c.account)}"></span>${esc(accName(c.account))} · ${c.paid?"passé":"attendu"}</div></div>
-      <div class="amt" onclick="editCharge('${c.id}')">${eur(c.amount)}</div></div>`).join("")
+      <div class="amt" onclick="editCharge('${c.id}')">${eur(c.amount)}${(()=>{ const t=c.tplId&&S.recurring.find(r=>r.id===c.tplId); return t&&Math.abs(t.amount-c.amount)>0.005?`<small style="color:${c.amount>t.amount?"var(--alert)":"var(--teal)"}">habituel ${eur(t.amount)}</small>`:""; })()}</div></div>`).join("")
       : `<div class="empty"><b>Aucun prélèvement.</b>Déclare-les dans les réglages, ils reviendront chaque mois.</div>`}
     ${M.charges.length?`<div class="calc"><div class="l res"><span class="n">Passés ${C.fixed?Math.round(M.charges.filter(c=>c.paid).reduce((t,c)=>t+(+c.amount||0),0)/C.fixed*100):0} %</span><span class="a">${eur(M.charges.filter(c=>c.paid).reduce((t,c)=>t+(+c.amount||0),0))} / ${eur(C.fixed)}</span></div></div>`:``}
   </div>
@@ -1310,13 +1320,21 @@ function editCategory(id){
     (it&&S.categories.length>1)?()=>{ const fb=S.categories.find(c=>c.id!==id).id; for(const ym in S.months) S.months[ym].ops.forEach(o=>{ if(o.category===id) o.category=fb; }); S.categories=S.categories.filter(c=>c.id!==id); }:null);
 }
 function editCharge(id){
-  const M=month(cur), it=id?M.charges.find(x=>x.id===id):null;
-  openSheet(it?"Modifier le prélèvement":"Prélèvement de ce mois", it&&it.tplId?"Ligne issue d'un prélèvement récurrent. La modifier ici ne change que ce mois.":"Uniquement pour ce mois. Pour qu'il revienne, déclare-le dans les réglages.",
-    [{k:"label",label:"Intitulé",type:"text"},{k:"amount",label:"Montant",type:"money"},{k:"day",label:"Jour",type:"day"},
-     {k:"account",label:"Prélevé sur",type:"seg",options:accOpts()},{k:"paid",label:"Statut",type:"seg",options:[{v:"0",t:"Attendu"},{v:"1",t:"Passé"}]}],
-    it?{label:it.label,amount:it.amount,day:it.day,account:it.account,paid:it.paid?"1":"0"}:{label:"",amount:"",day:today(),account:A0(),paid:"0"},
+  const M=month(cur), it=id?M.charges.find(x=>x.id===id):null, tpl=it&&it.tplId?S.recurring.find(t=>t.id===it.tplId):null;
+  const fields=[{k:"label",label:"Intitulé",type:"text"},{k:"amount",label:"Montant",type:"money"},{k:"day",label:"Jour",type:"day"},
+     {k:"account",label:"Prélevé sur",type:"seg",options:accOpts()},{k:"paid",label:"Statut",type:"seg",options:[{v:"0",t:"Attendu"},{v:"1",t:"Passé"}]}];
+  if(tpl) fields.push({k:"scope",label:"Ce changement vaut pour",type:"seg",options:[{v:"m",t:"Ce mois seulement"},{v:"a",t:"Ce mois et les suivants"}]});
+  openSheet(it?"Modifier le prélèvement":"Prélèvement de ce mois",
+    tpl?`Montant habituel : <b class="num">${eur(tpl.amount)}</b>. Un dépassement ponctuel (facture plus forte, régularisation) : choisis « Ce mois seulement ». Un nouveau tarif : « Ce mois et les suivants ».`
+       :"Uniquement pour ce mois. Pour qu'il revienne, déclare-le dans les réglages.",
+    fields,
+    it?{label:it.label,amount:it.amount,day:it.day,account:it.account,paid:it.paid?"1":"0",scope:"m"}:{label:"",amount:"",day:today(),account:A0(),paid:"0"},
     d=>{ if(!d.label.trim()){toast("Il manque l'intitulé");return false;} const o={label:d.label.trim(),amount:num(d.amount),day:clampDay(d.day),account:d.account,paid:d.paid==="1"};
-      if(it) Object.assign(it,o); else M.charges.push(Object.assign({id:uid(),tplId:null,category:"Autre"},o)); },
+      if(it) Object.assign(it,o); else M.charges.push(Object.assign({id:uid(),tplId:null,category:"Autre"},o));
+      if(tpl && d.scope==="a"){ Object.assign(tpl,{label:o.label,amount:o.amount,day:o.day,account:o.account});
+        for(const ym in S.months) if(ym>cur) S.months[ym].charges.forEach(c=>{ if(c.tplId===tpl.id&&!c.paid) Object.assign(c,{label:o.label,amount:o.amount,day:o.day,account:o.account}); });
+        toast(`${esc(o.label)} : ${eur(o.amount)} à partir de ${MONTHS[ymParts(cur).m-1]}`); }
+      else if(tpl && Math.abs(o.amount-tpl.amount)>0.005) toast(`${esc(o.label)} : ${eur(o.amount)} ce mois-ci<br>Les mois suivants restent à ${eur(tpl.amount)}`); },
     it?()=>{ M.charges=M.charges.filter(x=>x.id!==id); }:null);
 }
 function toggleCharge(id){ const c=month(cur).charges.find(x=>x.id===id); if(c){ c.paid=!c.paid; persist(); render(); } }
@@ -1337,7 +1355,7 @@ function importData(){ const inp=document.createElement("input"); inp.type="file
       try{ if(d.wallets) N=fromBudget1(d); else if(d.accounts&&d.months) N=migrate(Object.assign(blank(),d)); }catch(e){ toast("Sauvegarde reconnue mais conversion impossible : "+esc(e.message)); return; }
       if(!N){ toast("Fichier JSON lu, mais ce n'est pas une sauvegarde Budget."); return; }
       // 3. on enregistre tout de suite, l'affichage vient après
-      S=N; Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
+      S=N; fixAmountsOnce(); Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
       try{ render(); }catch(e){ showCrash(e); }
     }; r.readAsText(f); };
   inp.click(); }
@@ -1376,7 +1394,7 @@ document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>go(b.dataset.ta
 document.getElementById("fab").onclick=()=>{ if(tab==="epargne") editMove(); else editOp(); };
 
 (async function init(){
-  const saved=await Store.load(); if(saved) S=migrate(Object.assign(blank(),saved));
+  const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); }
   month(cur); render();
   if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}); }catch(e){} }
 })();
