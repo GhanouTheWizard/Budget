@@ -263,7 +263,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v11 · 10 octobre 2026";
+const APP_VERSION="v12 · 10 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -335,8 +335,8 @@ function A0(){ return S.accounts[0].id; }
 
 const nf=new Intl.NumberFormat("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2});
 const nf0=new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0});
-function eur(n){ return nf.format(n||0)+" €"; }
-function eur0(n){ return nf0.format(Math.round(n||0))+" €"; }
+function eur(n){ return nf.format(n||0)+"\u00a0€"; }
+function eur0(n){ return nf0.format(Math.round(n||0))+"\u00a0€"; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function clean(x){ return String(x==null?"":x).replace(/[\s\u00a0\u202f€]/g,"").replace(",","."); }
 function num(x){ const n=parseFloat(clean(x)); return isNaN(n)?0:n; }
@@ -942,24 +942,23 @@ function vStats(){
   const daily=new Array(dim+1).fill(0);
   M.ops.forEach(o=>{ const d=Math.min(dim,Math.max(1,o.day||1)); if(o.kind==="out"&&!o.proj) daily[d]+=+o.amount||0; else if(o.refundOf) daily[d]-=+o.amount||0; });
   const cum=[0]; for(let d=1;d<=dim;d++) cum[d]=cum[d-1]+daily[d];
-  const spent=cum[t], ideal=B*t/dim, proj=t>0?spent/t*dim:0;
-  const W=340,H=170,pl=36,pr=8,pt=10,pb=22, ymax=Math.max(B,proj,spent,100)*1.08;
+  const spent=cum[t];
+  const W=340,H=170,pl=36,pr=8,pt=10,pb=22, ymax=Math.max(B,spent,100)*1.12;
   const X=d=>pl+(d-1)/(dim-1)*(W-pl-pr), Y=v=>pt+(1-v/ymax)*(H-pt-pb);
   const ticks=[0,ymax/2,ymax].map(v=>Math.round(v/50)*50);
   let path=""; for(let d=1;d<=t;d++) path+=(d===1?"M":"L")+X(d).toFixed(1)+","+Y(cum[d]).toFixed(1);
-  const over=spent>ideal*1.05;
+  const over=B>0&&spent>B;
   const pace=`<svg class="chart" viewBox="0 0 ${W} ${H}" role="img" aria-label="Dépenses cumulées du mois comparées au budget" id="paceSvg">
     ${ticks.map(v=>`<line x1="${pl}" x2="${W-pr}" y1="${Y(v)}" y2="${Y(v)}" stroke="var(--line-soft)"/><text x="${pl-5}" y="${Y(v)+3}" text-anchor="end">${nf0.format(v)}</text>`).join("")}
-    ${B>0?`<line x1="${X(1)}" y1="${Y(0)}" x2="${X(dim)}" y2="${Y(B)}" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 4"/>
-      <text x="${X(dim)}" y="${Y(B)-6}" text-anchor="end">budget ${eur0(B)}</text>`:""}
-    ${isNow&&t<dim&&t>=3?`<line x1="${X(t)}" y1="${Y(spent)}" x2="${X(dim)}" y2="${Y(proj)}" stroke="${over?"var(--alert)":G.c1}" stroke-width="2" stroke-dasharray="2 4" opacity=".8"/>`:""}
+    ${B>0?`<line x1="${X(1)}" y1="${Y(B)}" x2="${X(dim)}" y2="${Y(B)}" stroke="var(--ink-3)" stroke-width="1.5" stroke-dasharray="4 4"/>
+      <text x="${X(dim)}" y="${Y(B)-6}" text-anchor="end">budget du mois ${eur0(B)}</text>`:""}
     <path d="${path}" fill="none" stroke="${G.c1}" stroke-width="2.2" stroke-linejoin="round" stroke-linecap="round"/>
     <circle cx="${X(t)}" cy="${Y(spent)}" r="4.5" fill="${over?"var(--alert)":G.c1}" stroke="var(--surface)" stroke-width="2"/>
     ${[1,10,20,dim].map(d=>`<text x="${X(d)}" y="${H-6}" text-anchor="middle">${d}</text>`).join("")}
     <line id="paceX" x1="0" x2="0" y1="${pt}" y2="${H-pb}" stroke="var(--ink)" stroke-width="1" opacity="0"/>
     <rect x="${pl}" y="0" width="${W-pl-pr}" height="${H}" fill="transparent" data-pace="1"/>
   </svg>`;
-  window._pace={cum,dim,t,B,X,pl,W,pr};
+  window._pace={cum,dim,t,B:0,X,pl,W,pr};
 
   // 2. où part l'argent
   const inc=C.salaryTot+C.recvTot+C.extraTot, other=C.spentAll-C.spentCourses;
@@ -1014,13 +1013,15 @@ function vStats(){
 
   return `
   <div class="card">
-    <span class="eyebrow">Rythme des dépenses · ${esc(mName)}</span>
+    <span class="eyebrow">Dépenses du mois · ${esc(mName)}</span>
     <div class="stat">
-      <div><span class="eyebrow">Dépensé${isNow?" au "+t:""}</span><div class="v" style="${over?"color:var(--alert)":""}">${eur0(spent)}</div></div>
-      <div><span class="eyebrow">${isNow?"Prévu à ce jour":"Budget du mois"}</span><div class="v" style="color:var(--ink-2)">${eur0(isNow?ideal:B)}</div></div>
+      <div><span class="eyebrow">Dépensé${isNow?" au "+t:""}</span><div class="v" style="${over?"color:var(--alert)":""}">${eur0(spent)}</div>
+        <div class="hint" style="margin-top:2px">courses ${eur0(C.spentCourses)} · autres ${eur0(spent-C.spentCourses)}</div></div>
+      <div><span class="eyebrow">${B>0&&spent<=B?"Reste sur "+eur0(B):"Budget du mois"}</span><div class="v" style="color:${over?"var(--alert)":"var(--teal)"}">${B>0?(over?"−"+eur0(spent-B):eur0(B-spent)):"—"}</div>
+        ${isNow?`<div class="hint" style="margin-top:2px">${Math.max(1,dim-t+1)} jours restants</div>`:""}</div>
     </div>
     ${pace}
-    <div class="hint" style="margin-top:6px">Trait plein : tes dépenses cumulées (hors prélèvements). Pointillés gris : le rythme qui tient le budget de ${eur0(B)}.${isNow&&t>=3&&t<dim?` À ce rythme, fin de mois à <b style="color:${over?"var(--alert)":"var(--ink-2)"}">${eur0(proj)}</b>.`:""} Touche le graphique pour voir un jour précis.</div>
+    <div class="hint" style="margin-top:6px">Courbe : tes dépenses cumulées jour après jour, courses et enveloppes, sans les prélèvements ni les projets anticipés. Ligne pointillée : ton budget total du mois (courses + enveloppes). Les courses se font en grosses fois, la courbe monte donc par marches : c'est normal. Touche le graphique pour voir un jour précis.</div>
   </div>
   <div class="card">
     <span class="eyebrow">Où part l'argent du mois</span>
@@ -1044,7 +1045,7 @@ function vStats(){
   const pace=(e)=>{ const P=window._pace, svg=document.getElementById("paceSvg"); if(!P||!svg) return false;
     const r=svg.getBoundingClientRect(), vx=(e.clientX-r.left)/r.width*P.W; let d=Math.round((vx-P.pl)/(P.W-P.pl-P.pr)*(P.dim-1))+1; d=Math.max(1,Math.min(P.t,d));
     const ln=document.getElementById("paceX"); ln.setAttribute("x1",P.X(d)); ln.setAttribute("x2",P.X(d)); ln.setAttribute("opacity",".35");
-    show(`Jour ${d} : ${eur0(P.cum[d])} dépensés${P.B?` · prévu ${eur0(P.B*d/P.dim)}`:""}`,e.clientX,r.top+10); return true; };
+    show(`Au ${d} : ${eur0(P.cum[d])} dépensés depuis le 1er`,e.clientX,r.top+10); return true; };
   document.addEventListener("pointerdown",e=>{ const p=e.target.closest("[data-pace]"); if(p){ pace(e); return; }
     const t=e.target.closest("[data-tip]"); if(t){ show(t.dataset.tip,e.clientX,e.clientY); } else tip.classList.remove("on"); });
   document.addEventListener("pointermove",e=>{ if(e.target.closest&&e.target.closest("[data-pace]")) pace(e); });
