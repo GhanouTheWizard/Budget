@@ -263,7 +263,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v10 · 1er octobre 2026";
+const APP_VERSION="v11 · 10 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -537,15 +537,13 @@ function renderInner(){
   window.scrollTo(0,0);
   requestAnimationFrame(()=>requestAnimationFrame(()=>{ document.querySelectorAll("[data-w]").forEach(e=>e.style.width=e.dataset.w+"%"); }));
   // pastille rouge sur l'onglet Aujourd'hui + grande alerte si une nouvelle alerte grave apparaît
-  const nowYm=ymNow(), crit=S.months[nowYm]?alerts(nowYm).filter(a=>a.lvl==="crit"):[];
+  const nowYm=ymNow(), all=S.months[nowYm]?alerts(nowYm):[], crit=all.filter(a=>a.lvl==="crit"&&!a.env&&a.id!=="rouge");
   const tb=document.querySelector('nav button[data-tab="today"]'); let bd=tb.querySelector(".badge");
   if(crit.length){ if(!bd){ bd=document.createElement("span"); bd.className="badge"; tb.appendChild(bd); } bd.textContent=crit.length; } else if(bd) bd.remove();
   S.alertSeen=S.alertSeen||{}; const seen=S.alertSeen[nowYm]||[];
   const fresh=crit.filter(a=>!seen.includes(a.id));
-  if(fresh.length){ S.alertSeen[nowYm]=seen.concat(fresh.map(a=>a.id)); persist(); setTimeout(()=>bigAlert(fresh[0],fresh.length-1),380); }
-  const soft=S.months[nowYm]?alerts(nowYm).filter(a=>a.level&&a.level<3&&!seen.includes(a.id)):[];
-  if(soft.length&&!fresh.length){ S.alertSeen[nowYm]=(S.alertSeen[nowYm]||[]).concat(soft.map(a=>a.id)); persist();
-    const a=soft.sort((x,y)=>y.level-x.level)[0]; setTimeout(()=>toast(`<b style="color:${a.level===2?"#FFB25C":"#F2DA6B"}">● ${a.level===2?"Alerte intermédiaire":"Alerte minimale"}</b><br>${esc(a.title)}<br>${esc(a.text)}`),420); }
+  if(fresh.length&&!silentAlerts){ S.alertSeen[nowYm]=seen.concat(fresh.map(a=>a.id)); persist(); setTimeout(()=>bigAlert(fresh[0],0),380); }
+  if(silentAlerts){ S.alertSeen[nowYm]=seen.concat(all.map(a=>a.id).filter(id=>!seen.includes(id))); persist(); silentAlerts=false; }
 }
 function storeBanner(){
   if(storeMode==="local") return "";
@@ -610,21 +608,30 @@ function toggleSalary(id){ const s=month(cur).salary.find(x=>x.id===id); if(!s) 
 
 /* plafonds par catégorie */
 function capsCard(C){
-  const caps=S.categories.filter(c=>(+c.budget||0)>0);
-  if(!caps.length && !C.toRefund) return "";
-  let totB=0, totS=0;
-  const rows=caps.map(c=>{ const b=+c.budget, s=C.byCat[c.id]||0; totB+=b; totS+=Math.min(s,b)+Math.max(0,s-b);
-    const pc=Math.min(100,s/b*100), lv=capLevel(s,b), cls="";
-    return `<div class="cap" onclick="editCategory('${c.id}')"><div class="h"><span>${esc(c.name)}</span>
-      <span class="a ${s>b?"minus":""}" style="${s>b?"color:var(--alert)":""}">${eur0(s)} <small>/ ${eur0(b)}</small></span></div>
-      <div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div><div class="ticks"><i style="left:50%"></i><i style="left:70%"></i><i style="left:90%"></i></div>
-      ${lv&&lv<4?`<div class="hint" style="margin-top:4px;color:${LV_COL[lv]};font-weight:600">${LV_TXT[lv]}</div>`:``}
-      ${s>b?`<div class="hint" style="margin-top:4px;color:var(--alert)">Dépassé de ${eur0(s-b)}</div>`:``}</div>`; }).join("");
-  return `<div class="card">
-    <div class="sec"><span class="eyebrow">Plafonds du mois</span>${caps.length?`<span class="num" style="font-size:12.5px;color:${totS>totB?"var(--alert)":"var(--ink-2)"}">${eur0(totS)} / ${eur0(totB)}</span>`:``}</div>
-    ${rows}
-    ${C.toRefund>0?`<div class="calc" style="margin-top:6px"><div class="l" style="border-top:1px solid var(--line-soft)"><span class="n">À te faire rembourser<small>${C.nToRefund} dépense${C.nToRefund>1?"s":""} santé ou frais pro sans remboursement complet. Pense aux notes de frais.</small></span><span class="a" style="color:var(--amber)">${eur(C.toRefund)}</span></div></div>`:``}
-    ${caps.length?`<div class="hint">Touche une ligne pour changer son plafond.</div>`:``}
+  const dim=daysIn(cur), t=isCur()?Math.min(new Date().getDate(),dim):dim, daysLeft=Math.max(1,dim-t+1);
+  const caps=S.categories.filter(c=>c.pocket==="securite"&&(+c.budget||0)>0);
+  const capLeft=caps.reduce((a,c)=>a+Math.max(0,(+c.budget)-(C.byCat[c.id]||0)),0);
+  const left=C.coursesLeft+C.repasLeft+(caps.length?capLeft:Object.values(C.A).reduce((a,x)=>a+x.secLeft,0));
+  const list=[]; if(C.courses>0) list.push({id:"courses",name:"Courses",s:C.spentCourses,b:C.courses,edit:"editCourses()"});
+  caps.forEach(c=>list.push({id:c.id,name:c.name,s:C.byCat[c.id]||0,b:+c.budget,edit:`editCategory('${c.id}')`}));
+  const watch=list.map(e=>Object.assign(e,{lv:capLevel(e.s,e.b)})).filter(e=>e.lv>=2).sort((a,b)=>b.lv-a.lv||b.s/b.b-a.s/a.b);
+  const worst=watch.length?watch[0].lv:0, totB=list.reduce((a,e)=>a+e.b,0), totS=list.reduce((a,e)=>a+e.s,0);
+  if(!list.length&&!C.toRefund) return "";
+  return `<div class="card" onclick="go('env')">
+    <div class="sec"><span class="eyebrow">Enveloppes</span><span class="act">Régler →</span></div>
+    ${list.length?`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
+      <span style="font-size:14px;color:var(--ink-2)">Reste à dépenser ${isCur()?`d'ici le ${dim}`:"ce mois"}</span>
+      <span class="num" style="font-size:22px;font-weight:650;letter-spacing:-.02em">${eur0(left)}</span></div>
+      ${isCur()?`<div class="hint" style="margin-top:2px">soit environ ${eur(left/daysLeft)} par jour sur ${daysLeft} jour${daysLeft>1?"s":""}, courses comprises · ${eur0(totS)} dépensés sur ${eur0(totB)}</div>`:""}`:""}
+    ${watch.length?`<div style="margin-top:10px;padding-top:8px;border-top:1px solid var(--line-soft)">
+      <div class="eyebrow" style="margin-bottom:4px;color:${LV_COL[worst]}">À surveiller</div>
+      ${watch.map(e=>`<div style="display:flex;align-items:center;gap:8px;padding:5px 0;font-size:14px" onclick="event.stopPropagation();${e.edit}">
+        <span class="dot" style="background:${LV_COL[e.lv]};border-radius:50%"></span><span style="flex:1">${esc(e.name)}</span>
+        <span class="num" style="font-size:12.5px;color:var(--ink-3)">reste ${eur0(Math.max(0,e.b-e.s))}</span>
+        <span class="num" style="font-weight:650;min-width:46px;text-align:right;color:${LV_COL[e.lv]}">${e.lv===4?"dépassé":Math.round(e.s/e.b*100)+" %"}</span></div>`).join("")}</div>`
+      :list.length?`<div class="hint" style="margin-top:8px;color:var(--teal);font-weight:600">● Toutes les enveloppes sont sous 70 %.</div>`:""}
+    <div class="calc" style="margin-top:8px"><div class="l" style="border-top:1px solid var(--line-soft)"><span class="n">Marge du mois<small>ce qui restera pour l'épargne si les enveloppes sont tenues</small></span><span class="a ${C.reste<0?"minus":"plus"}">${eur(C.reste)}</span></div></div>
+    ${C.toRefund>0?`<div class="calc" style="margin-top:8px"><div class="l" style="border-top:1px solid var(--line-soft)"><span class="n">À te faire rembourser<small>santé ou frais pro, pense aux notes de frais</small></span><span class="a" style="color:var(--amber)">${eur(C.toRefund)}</span></div></div>`:``}
   </div>`;
 }
 
@@ -691,6 +698,18 @@ function applyPlan(){
 }
 
 /* ================= alertes ================= */
+let silentAlerts=false;   // vrai juste après un import : on n'affiche aucune grande alerte
+/* niveau d'enveloppe d'une catégorie, pour savoir si une dépense vient de faire franchir un seuil */
+function envLevelOf(catId,C){ const c=cat(catId);
+  if(c.pocket==="courses") return {lv:capLevel(C.spentCourses,C.courses),name:"Courses",s:C.spentCourses,b:C.courses};
+  const b=+c.budget||0, s2=C.byCat[catId]||0; return {lv:b>0?capLevel(s2,b):0,name:c.name,s:s2,b}; }
+function envNotice(before,after){
+  if(after.lv<=before.lv||!after.lv) return false;
+  const pc=Math.round(after.s/after.b*100), rest=Math.max(0,after.b-after.s);
+  if(after.lv>=3){ setTimeout(()=>bigAlert({title:after.lv===4?`${after.name} : enveloppe dépassée`:`${after.name} : ${pc} % de l'enveloppe`,
+      text:after.lv===4?`${eur0(after.s)} dépensés pour ${eur0(after.b)} prévus. Le dépassement sera pris sur la marge du mois.`:`Il reste ${eur0(rest)} sur ${eur0(after.b)} jusqu'à la fin du mois.`},0),420); return true; }
+  toast(`<b style="color:${after.lv===2?"#FFB25C":"#F2DA6B"}">● ${after.name} : ${pc} %</b><br>Il reste ${eur0(rest)} sur ${eur0(after.b)}`); return true;
+}
 /* niveaux d'une enveloppe : 1 = 50 % (minimale), 2 = 70 % (intermédiaire), 3 = 90 % (maximale), 4 = dépassée */
 function capLevel(s,b){ if(!(b>0)) return 0; const r=s/b; return r>1?4:r>=0.9?3:r>=0.7?2:r>=0.5?1:0; }
 const LV_COL=["var(--teal)","#C9A227","var(--amber)","var(--alert)","var(--alert)"];
@@ -717,10 +736,11 @@ function alerts(ym){
   });
   const left=Math.max(1,dim-t+(isNow?1:0));
   const envAlert=(key,name,s,b)=>{ const lv=capLevel(s,b), pc=Math.round(s/b*100), rest=b-s;
-    if(lv===4) L.push({id:"cap100-"+key,lvl:"crit",level:4,title:`${name} : enveloppe dépassée`,text:`${eur0(s)} dépensés pour ${eur0(b)} prévus, soit ${eur0(s-b)} de trop. On ne dépense plus rien dans cette catégorie ce mois-ci.`});
-    else if(lv===3) L.push({id:"cap90-"+key,lvl:"crit",level:3,title:`${name} : ${pc} %, alerte maximale`,text:`Il ne reste que ${eur0(rest)} sur ${eur0(b)}. Stop sur cette catégorie jusqu'à la fin du mois.`});
-    else if(lv===2) L.push({id:"cap70-"+key,lvl:"warn",level:2,title:`${name} : ${pc} % utilisés`,text:`Il reste ${eur0(rest)}${isNow?`, soit environ ${eur0(rest/left)} par jour sur ${left} jours`:""}. On ralentit.`});
-    else if(lv===1) L.push({id:"cap50-"+key,lvl:"info",level:1,title:`${name} : moitié de l'enveloppe`,text:`${eur0(s)} sur ${eur0(b)}, il reste ${eur0(rest)}.`}); };
+    const base={env:true,key,name,s,b,pc,rest};
+    if(lv===4) L.push(Object.assign({id:"cap100-"+key,lvl:"crit",level:4,title:`${name} : enveloppe dépassée`,text:`${eur0(s)} dépensés pour ${eur0(b)} prévus (${eur0(s-b)} de plus). Le dépassement sera pris sur la marge du mois.`},base));
+    else if(lv===3) L.push(Object.assign({id:"cap90-"+key,lvl:"crit",level:3,title:`${name} : ${pc} % de l'enveloppe`,text:`Il reste ${eur0(rest)} sur ${eur0(b)} jusqu'à la fin du mois.`},base));
+    else if(lv===2) L.push(Object.assign({id:"cap70-"+key,lvl:"warn",level:2,title:`${name} : ${pc} % de l'enveloppe`,text:`Il reste ${eur0(rest)} sur ${eur0(b)}.`},base));
+    else if(lv===1) L.push(Object.assign({id:"cap50-"+key,lvl:"info",level:1,title:`${name} : la moitié de l'enveloppe`,text:`Il reste ${eur0(rest)} sur ${eur0(b)}.`},base)); };
   if(C.courses>0) envAlert("courses","Courses",C.spentCourses,C.courses);
   S.categories.filter(c=>(+c.budget||0)>0).forEach(c=>envAlert(c.id,c.name,C.byCat[c.id]||0,+c.budget));
   // projets anticipés : rappels d'achat
@@ -732,7 +752,7 @@ function alerts(ym){
       else L.push({id:"projmonth-"+p.id,lvl:"info",title:`${p.name} : à acheter ce mois-ci`,text:`${eur0(p.amount)} prévus${p.by?`, avant le ${p.by}`:""}. Les prix montent en approchant de la date.`}); }
   });
   const B=varBudget(C);
-  if(isNow && t>=7 && B>0){ const proj=C.spentAll/t*dim; if(proj>B*1.1) L.push({id:"pace",lvl:"crit",title:"Tu dépenses trop vite",text:`À ce rythme, le mois finira à ${eur0(proj)} de dépenses au lieu des ${eur0(B)} prévus, soit ${eur0(proj-B)} de trop. Il faudrait rester sous ${eur0(Math.max(0,(B-C.spentAll)/Math.max(1,dim-t)))} par jour jusqu'à la fin du mois.`}); }
+  // (plus d'alerte de rythme : extrapoler les premiers jours, gros plein de courses compris, donnait des chiffres faux)
   if(M.steps.depart && C.reste<-1) L.push({id:"rouge",lvl:"crit",title:"Le mois finit dans le rouge",text:`Il manque ${eur0(-C.reste)} pour couvrir les prélèvements et les enveloppes. Sans changement, il faudra puiser dans l'épargne.`});
   const lep=M.moves.filter(m=>m.kind==="out").reduce((s,m)=>s+(+m.amount||0),0);
   if(lep>0) L.push({id:"lep",lvl:"warn",title:`${eur0(lep)} repris sur l'épargne ce mois-ci`,text:`Pense à les remettre dès qu'un mois le permet.`});
@@ -747,15 +767,13 @@ function bigAlert(a,more){
 document.getElementById("baOk").onclick=()=>{ document.getElementById("bigalert").classList.remove("on"); };
 function alarmBlock(){
   if(!isCur()) return "";
-  const L=alerts(cur), crit=L.filter(a=>a.lvl==="crit"), warn=L.filter(a=>a.lvl==="warn"), info=L.filter(a=>a.lvl==="info");
+  const L=alerts(cur).filter(a=>!a.env), crit=L.filter(a=>a.lvl==="crit"), warn=L.filter(a=>a.lvl==="warn"||a.lvl==="info");
   let h="";
   if(crit.length){ const f=crit[0];
-    h+=`<div class="alarm" role="alert"><div class="kick">Alerte${crit.length>1?` · ${crit.length}`:""}</div>
-      <div class="top"><div class="ic">!</div><div><div class="tt">${esc(f.title)}</div><div class="tx">${esc(f.text)}</div></div></div>
-      ${crit.length>1?`<div class="more">${crit.slice(1).map(a=>`<div><b>${esc(a.title)}</b> · ${esc(a.text)}</div>`).join("")}</div>`:""}
-    </div>`; }
-  if(warn.length) h+=`<div class="warns">${warn.map(a=>`<div><b>${esc(a.title)}</b> · ${esc(a.text)}</div>`).join("")}</div>`;
-  if(info.length) h+=`<div class="infos">${info.map(a=>`<div><b>${esc(a.title)}</b> · ${esc(a.text)}</div>`).join("")}</div>`;
+    h+=`<div class="alarm" role="alert"><div class="top"><div class="ic">!</div><div><div class="tt" style="font-size:18px">${esc(f.title)}</div><div class="tx">${esc(f.text)}</div></div></div>
+      ${crit.length>1?`<div class="more">${crit.slice(1).map(a=>`<div><b>${esc(a.title)}</b> · ${esc(a.text)}</div>`).join("")}</div>`:""}</div>`; }
+  if(warn.length){ const shown=warn.slice(0,2), more=warn.length-shown.length;
+    h+=`<div class="warns">${shown.map(a=>`<div><b>${esc(a.title)}</b> · ${esc(a.text)}</div>`).join("")}${more>0?`<div style="opacity:.8">+ ${more} autre${more>1?"s":""} point${more>1?"s":""} à surveiller</div>`:""}</div>`; }
   return h;
 }
 
@@ -848,15 +866,15 @@ function vEnv(){
       ${projNeedTot>0?`<div class="l"><span class="n">Projets anticipés<small>mis de côté sur les comptes</small></span><span class="a minus">−${eur(projNeedTot)}</span></div>`:""}
       <div class="l res"><span class="n">${left>=0?"Reste pour l'épargne":"Il manque"}</span><span class="a ${left<0?"minus":"plus"}">${eur(Math.abs(left))}</span></div>
     </div>
-    <div class="hint">Ajuste les enveloppes avec − et + : le reste se recalcule tout de suite. Les plafonds valent pour tous les mois.</div>
+    <div class="hint">Ajuste chaque enveloppe à l'euro près avec − et +, ou touche le montant pour le taper. Le reste se recalcule tout de suite. Les plafonds valent pour tous les mois.</div>
   </div>
   <div class="card">
     <span class="eyebrow">Courses</span>
-    ${envRow("Courses",C.spentCourses,C.courses,"bumpCourses(-10)","bumpCourses(10)","editCourses()","pas de 10 €")}
+    ${envRow("Courses",C.spentCourses,C.courses,"bumpCourses(-1)","bumpCourses(1)","editCourses()","")}
   </div>
   <div class="card">
     <div class="sec"><span class="eyebrow">Enveloppes du mois</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(cats.reduce((t,c)=>t+(C.byCat[c.id]||0),0))} / ${eur0(caps)}</span></div>
-    ${cats.map(c=>envRow(c.name,C.byCat[c.id]||0,+c.budget||0,`bumpCap('${c.id}',-5)`,`bumpCap('${c.id}',5)`,`editCategory('${c.id}')`,"")).join("")}
+    ${cats.map(c=>envRow(c.name,C.byCat[c.id]||0,+c.budget||0,`bumpCap('${c.id}',-1)`,`bumpCap('${c.id}',1)`,`editCategory('${c.id}')`,"")).join("")}
     <div class="hint">Alertes : jaune à 50 %, orange à 70 %, rouge en grand à 90 % et au dépassement. Les traits gris sur les barres marquent ces seuils.</div>
     <button class="btn ghost sm" style="margin-top:10px" onclick="editCategory()">+ Nouvelle enveloppe</button>
   </div>
@@ -922,7 +940,7 @@ function vStats(){
 
   // 1. rythme : cumul jour par jour
   const daily=new Array(dim+1).fill(0);
-  M.ops.forEach(o=>{ const d=Math.min(dim,Math.max(1,o.day||1)); if(o.kind==="out") daily[d]+=+o.amount||0; else if(o.refundOf) daily[d]-=+o.amount||0; });
+  M.ops.forEach(o=>{ const d=Math.min(dim,Math.max(1,o.day||1)); if(o.kind==="out"&&!o.proj) daily[d]+=+o.amount||0; else if(o.refundOf) daily[d]-=+o.amount||0; });
   const cum=[0]; for(let d=1;d<=dim;d++) cum[d]=cum[d-1]+daily[d];
   const spent=cum[t], ideal=B*t/dim, proj=t>0?spent/t*dim:0;
   const W=340,H=170,pl=36,pr=8,pt=10,pb=22, ymax=Math.max(B,proj,spent,100)*1.08;
@@ -1104,15 +1122,7 @@ function vToday(){
       <div class="body"><div class="t">${esc(c.label)}</div><div class="s"><span class="dot" style="background:${accColor(c.account)}"></span>${esc(accName(c.account))}</div></div>
       <div class="amt">${eur(c.amount)}</div></div>`).join("")}
   </div>`:``}
-  <div class="card">
-    <div class="sec"><span class="eyebrow">Enveloppes du mois</span><button class="act" onclick="go('mois')">Modifier</button></div>
-    <div class="calc">
-      ${C.courses>0?`<div class="l"><span class="n">Courses<small>${eur0(C.spentCourses)} dépensés sur ${eur0(C.courses)}</small></span><span class="a ${C.coursesLeft>0?"":"minus"}">${eur(C.coursesLeft)}</span></div>`:``}
-      ${C.repas>0?`<div class="l"><span class="n">Paniers repas<small>${C.nRepas} repas · ${eur0(C.spentRepas)} sur ${eur0(C.repas)} · remboursés le mois prochain</small></span><span class="a ${C.repasLeft>0?"plus":"minus"}">${eur(C.repasLeft)}</span></div>`:``}
-      ${S.accounts.filter(a=>C.A[a.id].sec>0).map(a=>`<div class="l"><span class="n">Sécurité ${esc(a.name)}<small>${eur0(C.A[a.id].autres)} d'imprévus sur ${eur0(C.A[a.id].sec)}</small></span><span class="a ${C.A[a.id].secOver?"minus":""}">${eur(C.A[a.id].secLeft)}</span></div>`).join("")}
-      <div class="l res"><span class="n">Épargne possible ce mois</span><span class="a ${C.reste<0?"minus":"plus"}">${eur(C.reste)}</span></div>
-    </div>
-  </div>`;
+  `;
 }
 
 /* ---------- Le fil ---------- */
@@ -1434,9 +1444,11 @@ function editOp(id){
       const sel=body.querySelector("#refundList .row.on"); const refundOf = d.kind==="in" ? (sel&&sel.dataset.ref?sel.dataset.ref:null) : null;
       const o={kind:d.kind,amount:a,account:d.account,category:d.category,label:(d.label||"").trim(),day:clampDay(d.day)||today(),refundOf};
       if(refundOf){ const t=M.ops.find(x=>x.id===refundOf); if(t) o.category=t.category; }
+      const lvBefore=o.kind==="out"?envLevelOf(o.category,calc(cur)):null;
       if(it) Object.assign(it,o);
       else { M.ops.push(Object.assign({id:uid(),seen:false,ts:Date.now()},o));
         const C=calc(cur), c=cat(o.category), x=C.A[o.account];
+        if(o.kind==="out" && envNotice(lvBefore,envLevelOf(o.category,C))) return;
         if(o.kind==="out"){
           const b=+c.budget||0, sp=C.byCat[c.id]||0;
           const msg = b>0 ? (sp>b?`${esc(c.name)} : plafond dépassé de <b>${eur0(sp-b)}</b>`:`${esc(c.name)} : ${eur0(sp)} / ${eur0(b)} · reste <b>${eur0(b-sp)}</b>`)
@@ -1730,7 +1742,7 @@ function importData(){ const inp=document.createElement("input"); inp.type="file
       try{ if(d.wallets) N=fromBudget1(d); else if(d.accounts&&d.months) N=migrate(Object.assign(blank(),d)); }catch(e){ toast("Sauvegarde reconnue mais conversion impossible : "+esc(e.message)); return; }
       if(!N){ toast("Fichier JSON lu, mais ce n'est pas une sauvegarde Budget."); return; }
       // 3. on enregistre tout de suite, l'affichage vient après
-      S=N; fixAmountsOnce(); fixOct2Once(); Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
+      S=N; fixAmountsOnce(); fixOct2Once(); silentAlerts=true; Store.save(S); toast(d.wallets?"Budget 1 converti":"Sauvegarde restaurée");
       try{ render(); }catch(e){ showCrash(e); }
     }; r.readAsText(f); };
   inp.click(); }
