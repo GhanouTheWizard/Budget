@@ -59,6 +59,7 @@ main{padding:14px var(--pad) 8px;max-width:620px;margin:0 auto}
 .acc .top .nm{font-size:15px;font-weight:600;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .acc .top .v{font-family:var(--mono);font-variant-numeric:tabular-nums;font-size:22px;font-weight:650;letter-spacing:-.03em}
 .acc .top .v.neg{color:var(--alert)}
+.acc .top .fix{flex:none;font-size:12px;font-weight:600;color:var(--indigo);padding:4px 10px;border-radius:999px;border:1px solid var(--line);background:var(--surface)}
 .g{position:relative;height:14px;background:var(--panel);border-radius:4px;border:1px solid var(--line);overflow:hidden;margin:4px 0 6px}
 .g .neg{position:absolute;top:0;bottom:0;left:0;background:repeating-linear-gradient(135deg,var(--alert-soft) 0 4px,#F3D3CC 4px 8px)}
 .g .fill{position:absolute;top:0;bottom:0;background:var(--teal);transition:width .6s cubic-bezier(.22,.8,.3,1),left .6s}
@@ -263,7 +264,7 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v12 · 10 octobre 2026";
+const APP_VERSION="v13 · 15 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -349,7 +350,7 @@ function month(ym){
     const prev=S.months[ymShift(ym,-1)];
     const M={
       steps:{depart:false,repartition:false,cloture:false},
-      start:{}, salary:[], receivables:[], charges:[], transfers:[], ops:[], moves:[],
+      start:{}, salary:[], receivables:[], charges:[], transfers:[], ops:[], moves:[], adjust:[],
       courses:+S.defaults.courses||0, repasCount:+S.defaults.repasCount||0, repasUnit:+S.defaults.repasUnit||20,
       securite:Object.assign({},S.defaults.securite||{}), close:null
     };
@@ -398,6 +399,7 @@ function calc(ym){
   M.charges.forEach(c=>{ const a=g(c.account); a.charges+=+c.amount||0; if(isPaid(ym,c)) a.chargesPaid+=+c.amount||0; else a.chargesDue.push(c); });
   M.transfers.forEach(t=>{ const f=g(t.from), to=g(t.to), v=+t.amount||0; f.trOut+=v; to.trIn+=v; if(t.done){f.trOutDone+=v; to.trInDone+=v;} });
   M.moves.forEach(m=>{ const a=g(m.account); a.savedOut+=(m.kind==="in"?1:-1)*(+m.amount||0); });
+  (M.adjust||[]).forEach(j=>{ const a=g(j.account); a.adj=(a.adj||0)+(+j.amount||0); });
 
   // remboursements liés : net par opération
   const refundsOf={};
@@ -423,13 +425,14 @@ function calc(ym){
   // par compte
   let dispo=0, fixed=0, prot=0, secTot=0;
   Object.values(A).forEach(a=>{
-    a.real = a.start + a.income + a.recv + a.extra + a.trIn - a.trOut - a.charges - a.out + (a.inn - a.extra) - a.savedOut;
-    a.bank = a.start + a.incomeGot + a.recvGot + a.trInDone - a.trOutDone - a.chargesPaid - a.outSeen + a.innSeen - a.savedOut;
+    a.adj = a.adj||0;   // corrections manuelles du solde (oublis, écarts avec la banque)
+    a.real = a.start + a.income + a.recv + a.extra + a.trIn - a.trOut - a.charges - a.out + (a.inn - a.extra) - a.savedOut + a.adj;
+    a.bank = a.start + a.incomeGot + a.recvGot + a.trInDone - a.trOutDone - a.chargesPaid - a.outSeen + a.innSeen - a.savedOut + a.adj;
     a.pending = a.pendingOut - a.pendingIn;
     a.secLeft = Math.max(0, a.sec - a.autres);
     a.secOver = Math.max(0, a.autres - a.sec);
     a.over = acc(a.id)?+acc(a.id).overdraft||0:0;
-    dispo += a.start + a.income + a.recv + a.extra;
+    dispo += a.start + a.income + a.recv + a.extra + a.adj;
     fixed += a.charges; prot += a.secLeft; secTot += a.sec;
   });
   const courses=+M.courses||0, repas=(+M.repasCount||0)*(+M.repasUnit||0);
@@ -1081,7 +1084,7 @@ function vToday(){
     const rows=F.ev.map(e=>`<div class="e" ${e.act?`onclick="event.stopPropagation();${e.act}"`:""}><span class="w">${esc(e.when)}</span><span class="l">${esc(e.label)}</span>
       <span class="m" style="color:${e.amt>0?"var(--teal)":"var(--ink)"}">${e.amt>0?"+":"−"}${eur(Math.abs(e.amt))}<small style="color:${tone(e.bal)}">→ ${eur(e.bal)}</small></span></div>`).join("");
     return `<div class="card acc" onclick="toggleAcc('${a.id}')">
-      <div class="top" style="margin-bottom:2px"><span class="dot" style="background:${accColor(a.id)}"></span><span class="nm">${esc(a.name)}</span><span class="eyebrow" style="font-size:9px">aujourd'hui</span></div>
+      <div class="top" style="margin-bottom:2px"><span class="dot" style="background:${accColor(a.id)}"></span><span class="nm">${esc(a.name)}</span><button class="act fix" onclick="event.stopPropagation();editAdjust('${a.id}')">Corriger</button></div>
       <div class="now ${F.now<0?"neg":""}">${eur(F.now)}</div>
       <div class="endl"><span>Fin de mois prévue</span><b style="color:${tone(F.end)}">${eur(F.end)}</b></div>
       ${F.kept>0.005?`<div class="hint" style="margin:0 0 4px">dont ${eur(F.kept)} réservés pour ${esc(F.keptN.join(", "))}, à ne pas toucher</div>`:``}
@@ -1136,6 +1139,7 @@ function vFil(){
   else if(filFilter!=="all") ops=ops.filter(o=>o.account===filFilter);
   if(filFilter!=="pending"){
     M.transfers.filter(t=>t.done&&(filFilter==="all"||t.from===filFilter||t.to===filFilter)).forEach(t=>ops.push({_t:"tr",id:t.id,day:t.day||1,amount:t.amount,from:t.from,to:t.to,label:t.label}));
+    (M.adjust||[]).filter(j=>filFilter==="all"||j.account===filFilter).forEach(j=>ops.push({_t:"adj",id:j.id,day:j.day||1,amount:j.amount,account:j.account,label:j.label,ts:j.ts}));
     M.moves.filter(m=>filFilter==="all"||m.account===filFilter).forEach(m=>ops.push({_t:"mv",id:m.id,day:m.day||1,amount:m.amount,kind:m.kind,account:m.account,savingsId:m.savingsId,label:m.label}));
   }
   ops.sort((a,b)=>(b.day||0)-(a.day||0)||(b.ts||0)-(a.ts||0));
@@ -1147,6 +1151,9 @@ function vFil(){
     if(o._t==="tr") return `<div class="row"><span class="chk on" style="background:var(--indigo);border-color:var(--indigo)">⇄</span>
       <div class="body" onclick="editTransfer('${o.id}')"><div class="t">${esc(o.label||"Virement interne")}</div><div class="s">${esc(accName(o.from))} → ${esc(accName(o.to))}</div></div>
       <div class="amt" style="color:var(--indigo)" onclick="editTransfer('${o.id}')">${eur(o.amount)}</div></div>`;
+    if(o._t==="adj") return `<div class="row"><span class="chk on" style="background:var(--ink-3);border-color:var(--ink-3)">≈</span>
+      <div class="body" onclick="editAdjustLine('${o.id}')"><div class="t">${esc(o.label||"Correction du solde")}</div><div class="s"><span class="dot" style="background:${accColor(o.account)}"></span>${esc(accName(o.account))} · correction manuelle</div></div>
+      <div class="amt" onclick="editAdjustLine('${o.id}')" style="color:${o.amount>=0?"var(--teal)":"inherit"}">${o.amount>=0?"+":"−"}${eur(Math.abs(o.amount))}</div></div>`;
     if(o._t==="mv"){ const sv=(S.savings.find(x=>x.id===o.savingsId)||{}).name||"Épargne";
       return `<div class="row"><span class="chk on" style="background:var(--teal);border-color:var(--teal)">◈</span>
       <div class="body" onclick="editMove('${o.id}')"><div class="t">${esc(o.label||(o.kind==="in"?"Mise de côté":"Retrait"))}</div><div class="s">${o.kind==="in"?esc(accName(o.account))+" → "+esc(sv):esc(sv)+" → "+esc(accName(o.account))}</div></div>
@@ -1497,6 +1504,36 @@ function editStart(aid){
     {sign:(curV!=null&&curV<0)?"neg":"pos",amount:curV!=null?Math.abs(curV):""},
     d=>{ const v=clean(d.amount); if(v===""){ delete M.start[aid]; return; } const x=Math.abs(num(v)); M.start[aid]=d.sign==="neg"?-x:x; });
 }
+/* corriger le solde d'un compte : on tape ce qu'affiche la banque, l'app ajoute une ligne de correction de l'écart */
+function editAdjust(aid){
+  const M=month(cur), a=acc(aid), x=calc(cur).A[aid], bank=r2(x.bank);
+  const nP=M.ops.filter(o=>o.account===aid&&!o.seen).length;
+  const pend=nP?`<div class="hint" style="margin:-4px 0 12px">${nP} opération${nP>1?"s":""} de ce compte (${eur(x.pending)}) ne sont pas encore pointées : l'app les considère comme pas encore passées à la banque. Si elles apparaissent déjà sur ton relevé, pointe-les d'abord.
+    <button type="button" class="act" style="color:var(--teal);font-weight:600;display:block;margin-top:6px;padding:0" onclick="pointAcc('${aid}')">Tout pointer sur ce compte</button></div>`:"";
+  openSheet("Corriger · "+a.name,
+    `Tape le solde que ta banque affiche maintenant. Selon l'app, elle devrait afficher <b>${eur(bank)}</b>. L'écart est ajouté comme une ligne de correction, que tu peux retrouver et supprimer dans Le fil.`,
+    [{k:"x",type:"html",html:pend},
+     {k:"sign",label:"État",type:"seg",options:[{v:"pos",t:"Créditeur"},{v:"neg",t:"À découvert"}]},
+     {k:"amount",label:"Solde affiché par la banque",type:"money",ph:"0,00"},
+     {k:"label",label:"Motif (facultatif)",type:"text",ph:"oubli, frais bancaires…"}],
+    {sign:bank<0?"neg":"pos",amount:"",label:""},
+    d=>{ const v=clean(d.amount); if(v===""){ toast("Indique le solde de la banque"); return false; }
+      const target=(d.sign==="neg"?-1:1)*Math.abs(num(v)), diff=r2(target-bank);
+      if(Math.abs(diff)<0.005){ toast("C'est déjà le bon solde, rien à corriger"); return; }
+      M.adjust=M.adjust||[];
+      M.adjust.push({id:uid(),account:aid,amount:diff,day:today(),label:(d.label||"").trim()||"Correction du solde",ts:Date.now()});
+      toast(`${esc(a.name)} corrigé de ${diff>0?"+":"−"}${eur(Math.abs(diff))}`); });
+}
+function pointAcc(aid){ month(cur).ops.forEach(o=>{ if(o.account===aid) o.seen=true; }); persist(); closeSheet(); render(); editAdjust(aid); }
+function editAdjustLine(id){
+  const M=month(cur), j=(M.adjust||[]).find(x=>x.id===id); if(!j) return;
+  openSheet("Correction · "+accName(j.account),"Ligne ajoutée à la main pour coller au solde de la banque.",
+    [{k:"sign",label:"Sens",type:"seg",options:[{v:"pos",t:"Ajout"},{v:"neg",t:"Retrait"}]},{k:"amount",label:"Montant",type:"money"},{k:"label",label:"Motif",type:"text"},{k:"day",label:"Jour",type:"day"}],
+    {sign:j.amount<0?"neg":"pos",amount:Math.abs(j.amount),label:j.label,day:j.day},
+    d=>{ const x=Math.abs(num(d.amount)); if(!x){ toast("Indique un montant"); return false; }
+      j.amount=d.sign==="neg"?-x:x; j.label=(d.label||"").trim()||"Correction du solde"; j.day=clampDay(d.day)||j.day; },
+    ()=>{ M.adjust=M.adjust.filter(x=>x.id!==id); toast("Correction supprimée"); });
+}
 function editSalary(id,pre){
   const M=month(cur), it=id?M.salary.find(x=>x.id===id):null;
   // dernier salaire connu pour pré-remplir
@@ -1749,7 +1786,7 @@ function importData(){ const inp=document.createElement("input"); inp.type="file
   inp.click(); }
 function wipe(){ openSheet("Tout effacer","Définitif.",[{k:"c",label:"Tape EFFACER",type:"text"}],{},d=>{ if(d.c.trim().toUpperCase()!=="EFFACER"){toast("Confirmation incorrecte");return false;} S=blank(); cur=ymNow(); tab="reglages"; }); }
 function migrate(d){ if(!d.defaults) d.defaults=blank().defaults; if(!d.categories||!d.categories.length) d.categories=blank().categories; d.accounts.forEach(a=>{ if(a.overdraft==null) a.overdraft=150; });
-  for(const ym in d.months){ const M=d.months[ym]; M.steps=M.steps||{depart:false,repartition:false,cloture:false}; ["salary","receivables","charges","transfers","ops","moves"].forEach(k=>{ if(!Array.isArray(M[k])) M[k]=[]; }); M.start=M.start||{}; M.securite=M.securite||{}; } return d; }
+  for(const ym in d.months){ const M=d.months[ym]; M.steps=M.steps||{depart:false,repartition:false,cloture:false}; ["salary","receivables","charges","transfers","ops","moves","adjust"].forEach(k=>{ if(!Array.isArray(M[k])) M[k]=[]; }); M.start=M.start||{}; M.securite=M.securite||{}; } return d; }
 
 function fromBudget1(d){
   const N=blank();
