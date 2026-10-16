@@ -377,7 +377,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v14 · 16 octobre 2026";
+const APP_VERSION="v15 · 16 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1139,7 +1139,7 @@ function vStats(){
 
   // 5. épargne
   const sv=Object.keys(S.months).sort().filter(ym=>ym<=ymNow()); let run=S.savings.reduce((a,x)=>a+(+x.initial||0),0);
-  const spts=sv.map(ym=>{ S.months[ym].moves.forEach(mv=>run+=(mv.kind==="in"?1:-1)*(+mv.amount||0)); return {ym,v:run}; });
+  const spts=sv.map(ym=>{ S.months[ym].moves.forEach(mv=>{ if(S.savings.some(a=>a.id===mv.savingsId)) run+=(mv.kind==="in"?1:-1)*(+mv.amount||0); }); return {ym,v:run}; });
   let savChart="";
   if(S.savings.length && spts.length){ const W3=340,H3=120,p3=34, lo=Math.min(...spts.map(p=>p.v))*0.9, hi=Math.max(...spts.map(p=>p.v))*1.05||1;
     const X3=i=>p3+(spts.length===1?0.5:i/(spts.length-1))*(W3-p3-14), Y3=v=>10+(1-(v-lo)/((hi-lo)||1))*(H3-34);
@@ -1491,7 +1491,8 @@ function bilanCard(C){
 }
 
 /* ---------- Épargne ---------- */
-function savingsTotal(){ let t=S.savings.reduce((a,x)=>a+(+x.initial||0),0); for(const ym in S.months) for(const m of S.months[ym].moves) t+=(m.kind==="in"?1:-1)*(+m.amount||0); return t; }
+/* le total = la somme des livrets : un mouvement rattaché à un livret qui n'existe plus ne compte pas */
+function savingsTotal(){ return S.savings.reduce((t,a)=>t+savBalance(a.id),0); }
 function savBalance(id){ let t=+((S.savings.find(a=>a.id===id)||{}).initial)||0; for(const ym in S.months) for(const m of S.months[ym].moves) if(m.savingsId===id) t+=(m.kind==="in"?1:-1)*(+m.amount||0); return t; }
 function vEpargne(){
   const M=month(cur), C=calc(cur);
