@@ -136,6 +136,9 @@ nav button.on{color:var(--ink)}
 .sheet{position:fixed;left:0;right:0;bottom:0;z-index:51;background:var(--surface);border-radius:22px 22px 0 0;padding:8px var(--pad) calc(18px + var(--safe-b));max-height:92vh;overflow-y:auto;transform:translateY(102%);transition:transform .26s cubic-bezier(.3,.9,.35,1);box-shadow:0 -8px 30px rgba(27,36,48,.16)}
 .sheet.open{transform:translateY(0)}
 .handle{width:36px;height:4px;border-radius:2px;background:var(--line);margin:6px auto 12px}
+.sheet .x{position:sticky;top:0;float:right;z-index:2;width:36px;height:36px;margin:-4px -4px 0 8px;border-radius:50%;background:var(--panel);color:var(--ink-2);font-size:20px;line-height:1;display:grid;place-items:center}
+.sheet .x:active{background:var(--line)}
+.sheet .cancel{display:block;width:100%;text-align:center;margin-top:10px;padding:12px;font-size:15px;font-weight:600;color:var(--ink-2)}
 .sheet h2{font-size:18px;font-weight:650;letter-spacing:-.015em;margin:0 0 4px}
 .sheet .lead{font-size:13px;color:var(--ink-3);margin:0 0 14px;line-height:1.45} .sheet .lead b{color:var(--ink-2)}
 .f{margin-bottom:12px}
@@ -377,7 +380,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v15 · 16 octobre 2026";
+const APP_VERSION="v16 · 17 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1575,11 +1578,18 @@ function vReglages(){
 
 /* ================= feuille modale ================= */
 const scrim=document.getElementById("scrim"), sheet=document.getElementById("sheet"), sheetBody=document.getElementById("sheetBody");
-function closeSheet(){ sheet.classList.remove("open"); scrim.classList.remove("open"); }
+function closeSheet(){ if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); sheet.classList.remove("open"); scrim.classList.remove("open"); sheet.style.transform=""; }
+document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&sheet.classList.contains("open")) closeSheet(); });
+/* glisser la fenêtre vers le bas pour la fermer */
+(function(){ let y0=null, dy=0;
+  sheet.addEventListener("touchstart",e=>{ if(sheet.scrollTop>0||e.target.closest("input,select,textarea")) { y0=null; return; } y0=e.touches[0].clientY; dy=0; },{passive:true});
+  sheet.addEventListener("touchmove",e=>{ if(y0==null) return; dy=e.touches[0].clientY-y0; if(dy>0){ sheet.style.transition="none"; sheet.style.transform=`translateY(${dy}px)`; } },{passive:true});
+  sheet.addEventListener("touchend",()=>{ if(y0==null) return; sheet.style.transition=""; if(dy>90) closeSheet(); else sheet.style.transform=""; y0=null; });
+})();
 scrim.onclick=closeSheet;
 function openSheet(title,lead,fields,values,onSave,onDelete,delLabel){
   const v=Object.assign({},values);
-  sheetBody.innerHTML=`<h2>${esc(title)}</h2>`+(lead?`<p class="lead">${lead}</p>`:`<div style="height:10px"></div>`)
+  sheetBody.innerHTML=`<button type="button" class="x" id="shX" aria-label="Fermer">×</button><h2>${esc(title)}</h2>`+(lead?`<p class="lead">${lead}</p>`:`<div style="height:10px"></div>`)
     +fields.map(f=>{
       if(f.type==="seg") return `<div class="f"><label>${esc(f.label)}</label><div class="seg" data-k="${f.k}">${f.options.map(o=>`<button type="button" data-v="${esc(o.v)}" class="${String(v[f.k])===String(o.v)?"on":""}">${o.dot?`<span class="dot" style="background:${o.dot}"></span>`:""}${esc(o.t)}</button>`).join("")}</div></div>`;
       if(f.type==="chips") return `<div class="f"><label>${esc(f.label)}</label><div class="chips seg-chips" data-k="${f.k}">${f.options.map(o=>`<button type="button" data-v="${esc(o.v)}" class="${String(v[f.k])===String(o.v)?"on":""}">${esc(o.t)}</button>`).join("")}</div></div>`;
@@ -1588,7 +1598,8 @@ function openSheet(title,lead,fields,values,onSave,onDelete,delLabel){
       const extra=f.type==="money"?` inputmode="decimal" autocomplete="off" class="money"`:f.type==="day"?` inputmode="numeric" autocomplete="off" maxlength="2"`:f.type==="int"?` inputmode="numeric" autocomplete="off"`:"";
       return `<div class="f"><label>${esc(f.label)}</label><input type="text" data-k="${f.k}" value="${v[f.k]!=null?esc(v[f.k]):""}" placeholder="${esc(f.ph||"")}"${extra}></div>`;
     }).join("")
-    +`<div class="btnrow" style="margin-top:16px">${onDelete?`<button class="btn ghost" id="shDel" style="flex:0 0 40%">${esc(delLabel||"Supprimer")}</button>`:``}<button class="btn" id="shOk">Enregistrer</button></div>`;
+    +`<div class="btnrow" style="margin-top:16px">${onDelete?`<button class="btn ghost" id="shDel" style="flex:0 0 40%">${esc(delLabel||"Supprimer")}</button>`:``}<button class="btn" id="shOk">Enregistrer</button></div><button type="button" class="cancel" id="shCancel">Annuler</button>`;
+  sheetBody.querySelector("#shX").onclick=closeSheet; sheetBody.querySelector("#shCancel").onclick=closeSheet;
   sheetBody.querySelectorAll(".seg,.seg-chips").forEach(seg=>{ seg.onclick=e=>{ const b=e.target.closest("button"); if(!b)return; seg.querySelectorAll("button").forEach(x=>x.classList.remove("on")); b.classList.add("on"); seg.dispatchEvent(new CustomEvent("change")); }; });
   sheetBody.querySelector("#shOk").onclick=()=>{ const out={};
     sheetBody.querySelectorAll("[data-k]").forEach(el=>{ const k=el.dataset.k;
