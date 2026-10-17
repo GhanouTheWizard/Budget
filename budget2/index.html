@@ -385,7 +385,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v18 · 17 octobre 2026";
+const APP_VERSION="v19 · 17 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1258,8 +1258,8 @@ function vToday(){
     const tone=v=>v< -x.over?"var(--alert)":v<0?"var(--amber)":"var(--ink)";
     let warn="";
     if(!x.startSet) warn=`<div class="warn bad" onclick="event.stopPropagation();editStart('${a.id}')">Solde du 1er à saisir : touche ici pour l'indiquer.</div>`;
-    else if(F.now< -x.over) warn=`<div class="warn bad">Au-delà du découvert autorisé de ${eur0(x.over)}.</div>`;
-    else if(F.lowest< -x.over) warn=`<div class="warn bad">Le prévisionnel passe sous le découvert autorisé (au plus bas ${eur(F.lowest)}).</div>`;
+    else if(F.now< -x.over) warn=`<div class="warn bad">Au-delà du découvert autorisé de ${eur0(x.over)}.${S.savings.length?` <b style="text-decoration:underline" onclick="event.stopPropagation();fromSavings('${a.id}')">Prendre sur l'épargne</b>`:""}</div>`;
+    else if(F.lowest< -x.over) warn=`<div class="warn bad">Le prévisionnel passe sous le découvert autorisé (au plus bas ${eur(F.lowest)}).${S.savings.length?` <b style="text-decoration:underline" onclick="event.stopPropagation();fromSavings('${a.id}')">Prendre sur l'épargne</b>`:""}</div>`;
     else if(F.lowest<0) warn=`<div class="warn">Le prévisionnel passe à découvert (au plus bas ${eur(F.lowest)}), dans la limite autorisée.</div>`;
     const rows=F.ev.map(e=>`<div class="e" ${e.act?`onclick="event.stopPropagation();${e.act}"`:""}><span class="w">${esc(e.when)}</span><span class="l">${esc(e.label)}</span>
       <span class="m" style="color:${e.amt>0?"var(--teal)":"var(--ink)"}">${e.amt>0?"+":"−"}${eur(Math.abs(e.amt))}<small style="color:${tone(e.bal)}">→ ${eur(e.bal)}</small></span></div>`).join("");
@@ -1543,6 +1543,11 @@ function vEpargne(){
     <div class="big">${eur(savingsTotal())}</div>
     <div class="banner info" style="margin:0">On n'y touche qu'en cas de force majeure. Le reste du mois passe par les enveloppes de sécurité.</div>
   </div>
+  ${S.savings.length?`<div class="card">
+    <span class="eyebrow">Virer de l'épargne vers</span>
+    <div class="tiles" style="margin:10px 0 0">${S.accounts.map(a=>{ const F=forecast(cur,a.id), low=F&&Math.min(F.now,F.lowest)<0;
+      return `<button class="t-tr" style="${low?"background:var(--rose-soft);color:#C0453A":""}" onclick="fromSavings('${a.id}')"><span class="i" style="${low?"background:#F6CFCB":""}">${ico("down")}</span>${esc(a.name)}<small style="font-size:11.5px;font-weight:500;opacity:.8">${low?"à renflouer":eur0(F?F.now:0)}</small></button>`; }).join("")}</div>
+  </div>`:""}
   <div class="card">
     <span class="eyebrow">Ce que ${MONTHS[ymParts(cur).m-1]} permet</span>
     <div class="big ${C.reste<0?"neg":"teal"}" style="font-size:28px">${eur(C.reste)}</div>
@@ -1910,6 +1915,24 @@ function editSavings(id){
   openSheet(it?"Modifier le livret":"Nouveau livret","",[{k:"name",label:"Nom",type:"text",ph:"LEP"},{k:"initial",label:"Solde de départ",type:"money"}],it||{},
     d=>{ if(!d.name.trim()){toast("Il manque le nom");return false;} const o={name:d.name.trim(),initial:num(d.initial)}; if(it) Object.assign(it,o); else S.savings.push(Object.assign({id:uid()},o)); },
     it?()=>{ S.savings=S.savings.filter(x=>x.id!==id); }:null);
+}
+/* retrait rapide : livret -> un des comptes, en un geste */
+function fromSavings(aid){
+  if(!S.savings.length){ toast("Crée d'abord un livret"); return; }
+  const M=month(cur), a=acc(aid), F=forecast(cur,aid), need=F?Math.max(0,Math.ceil(-Math.min(F.now,F.lowest))):0;
+  const best=S.savings.slice().sort((x,y)=>savBalance(y.id)-savBalance(x.id))[0];
+  const fields=[{k:"amount",label:"Montant",type:"money",ph:"0,00"}];
+  if(S.savings.length>1) fields.push({k:"sid",label:"Depuis le livret",type:"seg",options:S.savings.map(v=>({v:v.id,t:v.name+" · "+eur0(savBalance(v.id))}))});
+  fields.push({k:"label",label:"Motif (facultatif)",type:"text",ph:"Imprévu, rattrapage du découvert…"});
+  const body=openSheet("Épargne → "+a.name,
+    `${S.savings.length===1?`${esc(best.name)} : <b>${eur(savBalance(best.id))}</b>. `:""}${need>0?`Il manque <b>${eur0(need)}</b> pour que ${esc(a.name)} ne passe pas sous zéro ce mois-ci.`:`${esc(a.name)} : ${eur(F?F.now:0)} aujourd'hui.`}`,
+    fields,{amount:need>0?String(need):"",sid:best.id,label:""},
+    d=>{ const amt=num(d.amount); if(amt<=0){ toast("Indique un montant"); return false; }
+      const sid=d.sid||best.id, sv=S.savings.find(x=>x.id===sid);
+      if(amt>savBalance(sid)+0.005){ toast(`${esc(sv.name)} n'a que ${eur(savBalance(sid))}`); return false; }
+      M.moves.push({id:uid(),kind:"out",amount:amt,account:aid,savingsId:sid,label:(d.label||"").trim()||"Retrait de "+sv.name,day:today()});
+      toast(`${eur(amt)} · ${esc(sv.name)} → ${esc(a.name)}<br>Reste ${eur0(savBalance(sid))} sur le livret`); });
+  const inp=body.querySelector('[data-k="amount"]'); if(inp){ try{ inp.focus(); inp.select(); }catch(e){} }
 }
 function editMove(id,pre){
   if(!S.savings.length){ toast("Crée d'abord un livret"); return; }
