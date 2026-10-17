@@ -251,7 +251,9 @@ body{background:var(--panel);padding-bottom:calc(112px + var(--safe-b))}
 header{background:rgba(243,242,238,.92);backdrop-filter:saturate(160%) blur(16px);-webkit-backdrop-filter:saturate(160%) blur(16px);color:var(--ink);padding:calc(env(safe-area-inset-top,0px) + 10px) var(--pad) 10px}
 .hbar{gap:10px}
 .hbar .brand{width:46px;height:46px;border-radius:15px;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center;flex:none;overflow:hidden}
-.hbar .brand img{width:100%;height:100%;object-fit:cover}
+.hbar .brand{position:relative;overflow:visible} .hbar .brand img{width:100%;height:100%;object-fit:cover;border-radius:15px}
+.sdot{position:absolute;right:-2px;bottom:-2px;width:13px;height:13px;border-radius:50%;border:2.5px solid var(--panel);background:var(--teal)}
+.sdot.off{display:none} .sdot.sending,.sdot.connect{background:var(--orange)} .sdot.offline{background:var(--ink-3)} .sdot.error{background:var(--alert)}
 .hbar .hello{flex:1;min-width:0}
 .hbar .hello .s1{font-size:12.5px;color:var(--ink-3);font-weight:500}
 .hbar .hello .s2{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -359,7 +361,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
     <button class="rb" id="gear" aria-label="Réglages"></button>
     <button class="rb g" id="savBtn" aria-label="Épargne"></button>
     <div class="hello" style="text-align:right"><div class="s1">Budget 2</div><div class="s2" id="hello">Bonjour</div></div>
-    <div class="brand"><img src="icon-180.png?v=4" alt=""></div>
+    <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=4" alt=""><span id="syncDot" class="sdot off"></span></div>
   </div>
 </header>
 <main id="view"></main>
@@ -380,7 +382,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v16 · 17 octobre 2026";
+const APP_VERSION="v17 · 17 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -417,6 +419,7 @@ const Store={
     return null;
   },
   async save(d){ const s=JSON.stringify(d);
+    if(window.SyncRef&&!SyncRef.quiet) SyncRef.schedule();
     try{ localStorage.setItem(KEY,s); storeMode="local"; return; }catch(e){}
     if(window.storage){ try{ await window.storage.set(KEY,s); storeMode="preview"; return; }catch(e){} }
     storeMode="memory"; }
@@ -491,12 +494,12 @@ function month(ym){
       courses:+S.defaults.courses||0, repasCount:+S.defaults.repasCount||0, repasUnit:+S.defaults.repasUnit||20,
       securite:Object.assign({},S.defaults.securite||{}), close:null
     };
-    M.charges=S.recurring.filter(t=>!t.until||ym<=t.until).map(t=>({id:uid(),tplId:t.id,label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category,paid:false}));
-    if(S.defaults.salaryLabel) M.salary.push({id:uid(),label:S.defaults.salaryLabel,amount:0,account:S.defaults.salaryAccount||A0(),got:false});
+    M.charges=S.recurring.filter(t=>!t.until||ym<=t.until).map(t=>({id:"ch-"+t.id+"-"+ym,tplId:t.id,label:t.label,amount:t.amount,day:t.day,account:t.account,category:t.category,paid:false}));
+    if(S.defaults.salaryLabel) M.salary.push({id:"sal-"+ym,label:S.defaults.salaryLabel,amount:0,account:S.defaults.salaryAccount||A0(),got:false});
     if(prev && prev.close){
       S.accounts.forEach(a=>{ if(prev.close[a.id]!=null) M.start[a.id]=prev.close[a.id]; });
       const pm=ymShift(ym,-1), rc=(+prev.repasCount||0)*(+prev.repasUnit||0);
-      if(rc>0) M.receivables.push({id:uid(),label:"Remboursement paniers repas de "+MONTHS[ymParts(pm).m-1],amount:r2(rc),account:S.defaults.salaryAccount||A0(),got:false,from:pm});
+      if(rc>0) M.receivables.push({id:"rc-"+pm,label:"Remboursement paniers repas de "+MONTHS[ymParts(pm).m-1],amount:r2(rc),account:S.defaults.salaryAccount||A0(),got:false,from:pm});
     }
     S.months[ym]=M; persist();
   }
@@ -1241,6 +1244,7 @@ function vToday(){
       </div>
       <button class="btn teal" style="margin-bottom:8px" onclick="addSalary()">+ Ajouter le salaire</button>
       <button class="btn" onclick="go('mois')">Faire le départ du mois</button>
+      ${Sync.available()&&!Sync.on?`<button class="btn ghost" style="margin-top:8px" onclick="editSync('join')">Rejoindre le budget de l'autre téléphone</button>`:""}
       ${S.recurring.length?"":`<div class="hint">Pense aussi à déclarer les prélèvements récurrents dans les réglages (icône ⚙ en haut), ils se reporteront chaque mois.</div>`}
     </div>`;
   }
@@ -1359,7 +1363,7 @@ function vFil(){
     return `<div class="row">
       <button class="chk ${o.seen?"on":""}" onclick="toggleSeen('${o.id}')" aria-label="Vu à la banque">✓</button>
       <div class="body" onclick="editOp('${o.id}')"><div class="t">${esc(o.label||c.name)}</div>
-        <div class="s"><span class="dot" style="background:${accColor(o.account)}"></span>${esc(accName(o.account))} · ${sub}</div></div>
+        <div class="s"><span class="dot" style="background:${accColor(o.account)}"></span>${esc(accName(o.account))} · ${sub}${o.by?` · ${esc(o.by)}`:""}</div></div>
       <div class="amt" onclick="editOp('${o.id}')" style="color:${o.kind==="in"?"var(--teal)":o.seen?"inherit":"var(--amber)"}">${o.kind==="in"?"+":"−"}${eur(o.amount)}</div>
     </div>`;
   };
@@ -1562,9 +1566,10 @@ function vReglages(){
     <div class="chips">${S.categories.map(c=>`<button onclick="editCategory('${c.id}')">${esc(c.name)}${c.pocket==="courses"?" 🛒":c.pocket==="repas"?" 🍽":""}${c.refund?" ↩":""}${+c.budget?` · ${eur0(c.budget)}`:""}</button>`).join("")}</div>
     <div class="hint">🛒 alimente l'enveloppe courses, 🍽 les paniers repas, ↩ attend un remboursement. Le reste consomme la sécurité du compte. Le montant affiché est le plafond mensuel.</div>
   </div>
+  ${syncCard()}
   <div class="card">
     <span class="eyebrow">Sauvegarde</span>
-    <div class="hint" style="margin:6px 0 12px">Les données vivent uniquement sur cet iPhone. Exporte de temps en temps.</div>
+    <div class="hint" style="margin:6px 0 12px">${Sync.on?"Les données sont partagées avec l'autre téléphone. Un export de temps en temps reste une bonne précaution.":"Les données vivent uniquement sur cet iPhone. Exporte de temps en temps."}</div>
     <div class="btnrow"><button class="btn sm" onclick="exportData()">Exporter</button><button class="btn sm ghost" onclick="importData()">Importer</button></div>
     <div class="hint">Importer accepte aussi un export de Budget 1 : comptes, prélèvements, livrets et mois saisis sont convertis.</div>
   </div>
@@ -1573,12 +1578,12 @@ function vReglages(){
     <div class="hint" style="margin:6px 0 12px">Efface tout, sans retour possible.</div>
     <button class="btn sm danger" onclick="wipe()">Tout effacer</button>
   </div>
-  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget 2 · ${APP_VERSION} · données locales · aucun serveur</div>`;
+  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget 2 · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
 }
 
 /* ================= feuille modale ================= */
 const scrim=document.getElementById("scrim"), sheet=document.getElementById("sheet"), sheetBody=document.getElementById("sheetBody");
-function closeSheet(){ if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); sheet.classList.remove("open"); scrim.classList.remove("open"); sheet.style.transform=""; }
+function closeSheet(){ if(window.SyncRef) SyncRef.release(); if(document.activeElement&&document.activeElement.blur) document.activeElement.blur(); sheet.classList.remove("open"); scrim.classList.remove("open"); sheet.style.transform=""; }
 document.addEventListener("keydown",e=>{ if(e.key==="Escape"&&sheet.classList.contains("open")) closeSheet(); });
 /* glisser la fenêtre vers le bas pour la fermer */
 (function(){ let y0=null, dy=0;
@@ -1658,7 +1663,7 @@ function editOp(id){
       if(refundOf){ const t=M.ops.find(x=>x.id===refundOf); if(t) o.category=t.category; }
       const lvBefore=o.kind==="out"?envLevelOf(o.category,calc(cur)):null;
       if(it) Object.assign(it,o);
-      else { M.ops.push(Object.assign({id:uid(),seen:false,ts:Date.now()},o));
+      else { M.ops.push(Object.assign({id:uid(),seen:false,ts:Date.now()},Sync.on&&Sync.cfg.name?{by:Sync.cfg.name}:{},o));
         const C=calc(cur), c=cat(o.category), x=C.A[o.account];
         if(o.kind==="out" && envNotice(lvBefore,envLevelOf(o.category,C))) return;
         if(o.kind==="out"){
@@ -1861,7 +1866,7 @@ function closeMonth(){
     d=>{ const close={}; S.accounts.forEach(a=>{ close[a.id]=num(d[a.id]); }); M.close=close; M.steps.cloture=true;
       const nx=ymShift(cur,1); if(S.months[nx]){ const N=S.months[nx]; S.accounts.forEach(a=>{ N.start[a.id]=close[a.id]; });
         const rc=(+M.repasCount||0)*(+M.repasUnit||0); const lbl="Remboursement paniers repas de "+MONTHS[ymParts(cur).m-1];
-        if(rc>0&&!N.receivables.some(r=>r.from===cur)) N.receivables.push({id:uid(),label:lbl,amount:r2(rc),account:S.defaults.salaryAccount||A0(),got:false,from:cur}); }
+        if(rc>0&&!N.receivables.some(r=>r.from===cur)) N.receivables.push({id:"rc-"+cur,label:lbl,amount:r2(rc),account:S.defaults.salaryAccount||A0(),got:false,from:cur}); }
       toast(`${MONTHS[ymParts(cur).m-1]} clôturé · soldes reportés`); },
     M.close?()=>{ M.close=null; M.steps.cloture=false; }:null, "Rouvrir");
 }
@@ -1988,7 +1993,7 @@ function importData(){ const inp=document.createElement("input"); inp.type="file
       try{ render(); }catch(e){ showCrash(e); }
     }; r.readAsText(f); };
   inp.click(); }
-function wipe(){ openSheet("Tout effacer","Définitif.",[{k:"c",label:"Tape EFFACER",type:"text"}],{},d=>{ if(d.c.trim().toUpperCase()!=="EFFACER"){toast("Confirmation incorrecte");return false;} S=blank(); cur=ymNow(); tab="reglages"; }); }
+function wipe(){ openSheet("Tout effacer",Sync.on?"Définitif, et l'effacement part aussi sur l'autre téléphone. Désactive d'abord la synchronisation pour n'effacer que celui-ci.":"Définitif.",[{k:"c",label:"Tape EFFACER",type:"text"}],{},d=>{ if(d.c.trim().toUpperCase()!=="EFFACER"){toast("Confirmation incorrecte");return false;} S=blank(); cur=ymNow(); tab="reglages"; }); }
 function migrate(d){ if(!d.defaults) d.defaults=blank().defaults; if(!d.categories||!d.categories.length) d.categories=blank().categories; d.accounts.forEach(a=>{ if(a.overdraft==null) a.overdraft=150; });
   for(const ym in d.months){ const M=d.months[ym]; M.steps=M.steps||{depart:false,repartition:false,cloture:false}; ["salary","receivables","charges","transfers","ops","moves","adjust"].forEach(k=>{ if(!Array.isArray(M[k])) M[k]=[]; }); M.start=M.start||{}; M.securite=M.securite||{}; } return d; }
 
@@ -2027,9 +2032,214 @@ document.querySelectorAll("[data-ico]").forEach(e=>e.innerHTML=ico(e.dataset.ico
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 document.getElementById("fab").onclick=()=>{ if(tab==="epargne") editMove(); else editOp(); };
 
+/* ================= synchronisation à deux (Firebase, chiffré sur le téléphone) =================
+   Le serveur ne reçoit qu'un bloc chiffré (AES-GCM, clé tirée du mot de passe commun).
+   Fusion à trois voies : dernier état commun (base), ce téléphone (local), l'autre téléphone (serveur). */
+const FB_CONFIG=null;   // rempli avec la configuration Firebase du foyer
+const FB_V="10.12.2";
+const SYNC_KEY="budget2.sync", SYNC_BASE="budget2.syncbase";
+const LOCAL_ONLY=["alertSeen"];   // propre à chaque téléphone
+function canon(x){ return JSON.parse(JSON.stringify(x,(k,v)=>(k&&k[0]==="_")||LOCAL_ONLY.includes(k)?undefined:v)); }
+function jeq(a,b){ return JSON.stringify(a)===JSON.stringify(b); }
+function isObj(x){ return x!==null&&typeof x==="object"&&!Array.isArray(x); }
+function idArr(...xs){ const arrs=xs.filter(x=>x!==undefined); return arrs.length>0&&arrs.every(Array.isArray)&&arrs.every(a=>a.every(o=>isObj(o)&&o.id!=null)); }
+function merge3(b,a,t){
+  if(jeq(a,t)) return a; if(jeq(a,b)) return t; if(jeq(t,b)) return a;
+  if(Array.isArray(a)&&Array.isArray(t)&&(b===undefined||Array.isArray(b))){
+    if(idArr(b,a,t)){
+      const B=new Map((b||[]).map(o=>[o.id,o])), Am=new Map(a.map(o=>[o.id,o])), Tm=new Map(t.map(o=>[o.id,o]));
+      const ids=a.map(o=>o.id).concat(t.map(o=>o.id).filter(id=>!Am.has(id))), out=[];
+      ids.forEach(id=>{ const bi=B.get(id), ai=Am.get(id), ti=Tm.get(id);
+        if(ai!==undefined&&ti!==undefined) out.push(merge3(bi,ai,ti));
+        else if(ai!==undefined){ if(bi===undefined||!jeq(ai,bi)) out.push(ai); }   // supprimé de l'autre côté sans modif ici : on suit
+        else { if(bi===undefined||!jeq(ti,bi)) out.push(ti); } });
+      return out;
+    }
+    if([a,t,b||[]].every(x=>x.every(v=>v===null||typeof v!=="object"))){
+      const bs=new Set((b||[]).map(String)), as=new Set(a.map(String)), ts=new Set(t.map(String));
+      const keep=v=>!(bs.has(String(v))&&(!as.has(String(v))||!ts.has(String(v))));
+      const out=a.filter(keep); t.forEach(v=>{ if(!as.has(String(v))&&keep(v)) out.push(v); }); return out;
+    }
+    return a;
+  }
+  if(isObj(a)&&isObj(t)&&(b===undefined||isObj(b))){
+    const out={}, keys=new Set(Object.keys(a).concat(Object.keys(t)));
+    keys.forEach(k=>{ const r=merge3(b?b[k]:undefined,a[k],t[k]); if(r!==undefined) out[k]=r; });
+    return out;
+  }
+  return a;   // vrai conflit sur une même valeur : ce téléphone l'emporte
+}
+
+/* chiffrement */
+const enc8=new TextEncoder(), dec8=new TextDecoder();
+function b64(buf){ let s=""; const u=new Uint8Array(buf); for(let i=0;i<u.length;i+=0x8000) s+=String.fromCharCode.apply(null,u.subarray(i,i+0x8000)); return btoa(s); }
+function unb64(s){ const bin=atob(s), u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return u; }
+async function pbkdf(pass,salt,bits){ const k=await crypto.subtle.importKey("raw",enc8.encode(pass),"PBKDF2",false,["deriveBits"]);
+  return crypto.subtle.deriveBits({name:"PBKDF2",salt:enc8.encode(salt),iterations:250000,hash:"SHA-256"},k,bits); }
+async function deriveSecrets(pass){
+  const raw=await pbkdf(pass,"budget2-foyer-cle-v1",256), idb=await pbkdf(pass,"budget2-foyer-id-v1",256);
+  return {key:b64(raw), hid:[...new Uint8Array(idb)].map(x=>x.toString(16).padStart(2,"0")).join("")};
+}
+async function aesKey(k64){ return crypto.subtle.importKey("raw",unb64(k64),"AES-GCM",false,["encrypt","decrypt"]); }
+async function gz(bytes,dir){ const cs=dir?new CompressionStream("gzip"):new DecompressionStream("gzip"); return new Uint8Array(await new Response(new Blob([bytes]).stream().pipeThrough(cs)).arrayBuffer()); }
+async function sealData(obj,k64){
+  let bytes=enc8.encode(JSON.stringify(obj)), z=false;
+  if(window.CompressionStream){ try{ bytes=await gz(bytes,true); z=true; }catch(e){} }
+  const iv=crypto.getRandomValues(new Uint8Array(12)), ct=await crypto.subtle.encrypt({name:"AES-GCM",iv},await aesKey(k64),bytes);
+  return {iv:b64(iv),d:b64(ct),z};
+}
+async function openData(doc,k64){
+  let bytes=new Uint8Array(await crypto.subtle.decrypt({name:"AES-GCM",iv:unb64(doc.iv)},await aesKey(k64),unb64(doc.d)));
+  if(doc.z) bytes=await gz(bytes,false);
+  return JSON.parse(dec8.decode(bytes));
+}
+
+/* serveur Firebase : lecture, écriture conditionnelle (comme un verrou), écoute en direct */
+async function firebaseBackend(hid){
+  const base="https://www.gstatic.com/firebasejs/"+FB_V+"/";
+  const [A,Au,F]=await Promise.all([import(base+"firebase-app.js"),import(base+"firebase-auth.js"),import(base+"firebase-firestore.js")]);
+  const app=A.getApps().length?A.getApp():A.initializeApp(FB_CONFIG);
+  const auth=Au.getAuth(app); if(!auth.currentUser) await Au.signInAnonymously(auth);
+  const db=F.getFirestore(app), ref=F.doc(db,"foyers",hid);
+  return {
+    async get(){ const s=await F.getDoc(ref); return s.exists()?s.data():null; },
+    async cas(expV,data){ try{ await F.runTransaction(db,async tx=>{ const s=await tx.get(ref); const v=s.exists()?(s.data().v||0):0;
+        if(v!==expV) throw new Error("conflit"); tx.set(ref,Object.assign({},data,{at:F.serverTimestamp()})); }); return true; }
+      catch(e){ if(e&&e.message==="conflit") return false; throw e; } },
+    listen(cb){ return F.onSnapshot(ref,s=>{ if(!s.metadata.hasPendingWrites&&s.exists()) cb(s.data()); },e=>Sync.fail(e)); }
+  };
+}
+
+const Sync={
+  cfg:null, be:null, state:"off", last:null, err:"", busy:false, again:false, held:null, unsub:null, t:null,
+  get on(){ return !!(this.cfg&&this.cfg.hid); },
+  available(){ return !!(FB_CONFIG||window.__mockBackend) && !!(window.crypto&&crypto.subtle); },
+  loadCfg(){ try{ this.cfg=JSON.parse(localStorage.getItem(SYNC_KEY)||"null"); }catch(e){ this.cfg=null; } },
+  saveCfg(){ try{ if(this.cfg) localStorage.setItem(SYNC_KEY,JSON.stringify(this.cfg)); else localStorage.removeItem(SYNC_KEY); }catch(e){} },
+  base(){ try{ return JSON.parse(localStorage.getItem(SYNC_BASE)||"null"); }catch(e){ return null; } },
+  setBase(b,v){ try{ localStorage.setItem(SYNC_BASE,JSON.stringify(b)); }catch(e){} this.cfg.ver=v; this.saveCfg(); },
+  backend(hid){ return window.__mockBackend?window.__mockBackend(hid):firebaseBackend(hid); },
+  status(s,e){ this.state=s; if(e!==undefined) this.err=e; if(s==="ok") this.last=Date.now(); paintSync(); },
+  fail(e){ console.warn(e); this.status(navigator.onLine===false?"offline":"error",String(e&&e.message||e)); },
+
+  async start(){
+    this.loadCfg(); if(!this.on||!this.available()) return;
+    try{ this.status("connect"); this.be=await this.backend(this.cfg.hid);
+      if(this.unsub) this.unsub(); this.unsub=this.be.listen(d=>this.onRemote(d));
+      await this.push();
+    }catch(e){ this.fail(e); }
+  },
+  /* premier téléphone : on envoie ; téléphone qui rejoint : il reprend les données du foyer */
+  async join(pass,name,mode){
+    const sec=await deriveSecrets(pass);
+    this.cfg={hid:sec.hid,key:sec.key,name:(name||"").trim(),dev:uid()+uid(),ver:0}; 
+    const be=await this.backend(sec.hid); const doc=await be.get(); let created=false;
+    if(!doc&&mode==="join"){ this.cfg=null; throw new Error("aucun budget partagé avec ce mot de passe. Vérifie-le, ou choisis « Premier téléphone » sur le téléphone qui a les données"); }
+    if(doc){
+      let remote; try{ remote=await openData(doc,sec.key); }catch(e){ this.cfg=null; throw new Error("Mot de passe différent de celui du foyer"); }
+      try{ localStorage.setItem("budget2.avant-synchro",JSON.stringify(S)); }catch(e){}
+      this.applyState(remote); this.saveCfg(); this.setBase(canon(S),doc.v||0);
+    } else {
+      const local=canon(S), sealed=await sealData(local,sec.key);
+      if(!await be.cas(0,Object.assign({v:1,by:this.cfg.dev},sealed))) throw new Error("Réessaie dans un instant");
+      this.saveCfg(); this.setBase(local,1); created=true;
+    }
+    this.be=be; if(this.unsub) this.unsub(); this.unsub=be.listen(d=>this.onRemote(d)); this.status("ok");
+    return created;
+  },
+  leave(){ if(this.unsub) this.unsub(); this.unsub=null; this.be=null; this.cfg=null; this.saveCfg(); try{ localStorage.removeItem(SYNC_BASE); }catch(e){} this.status("off",""); },
+
+  schedule(){ if(!this.on||!this.be) return; clearTimeout(this.t); this.t=setTimeout(()=>this.push(),700); },
+  async push(){
+    if(!this.on||!this.be) return; if(this.busy){ this.again=true; return; }
+    this.busy=true;
+    try{
+      for(let i=0;i<6;i++){
+        const base=this.base(), local=canon(S), ver=this.cfg.ver||0;
+        if(jeq(local,base)){ const d=await this.be.get(); if(!d||(d.v||0)===ver){ this.status("ok"); break; } await this.onRemote(d,true); continue; }
+        this.status("sending");
+        const d=await this.be.get(), sv=d?(d.v||0):0;
+        let next=local;
+        if(d&&sv!==ver){ const remote=await openData(d,this.cfg.key); next=merge3(base||{},local,remote); }
+        const sealed=await sealData(next,this.cfg.key);
+        if(await this.be.cas(sv,Object.assign({v:sv+1,by:this.cfg.dev},sealed))){
+          if(!jeq(next,local)) this.applyState(next,true);
+          this.setBase(next,sv+1); this.status("ok"); break;
+        }
+      }
+    }catch(e){ this.fail(e); }
+    this.busy=false; if(this.again){ this.again=false; this.schedule(); }
+  },
+  /* changement venu de l'autre téléphone */
+  async onRemote(d,inPush){
+    if(!this.on||(d.v||0)<=(this.cfg.ver||0)||d.by===this.cfg.dev) return;
+    if(sheet.classList.contains("open")){ this.held=d; return; }   // on attend la fin de la saisie en cours
+    let remote; try{ remote=await openData(d,this.cfg.key); }catch(e){ this.status("error","Données illisibles : mot de passe différent ?"); return; }
+    const base=this.base(), local=canon(S), dirty=!jeq(local,base);
+    const next=dirty?merge3(base||{},local,remote):remote;
+    this.setBase(remote,d.v||0); this.applyState(next,true);
+    if(dirty&&!inPush) this.schedule(); else if(!dirty) this.status("ok");
+  },
+  release(){ if(this.held){ const d=this.held; this.held=null; setTimeout(()=>this.onRemote(d),250); } },
+  applyState(next,keepView){
+    const seen=S.alertSeen; S=migrate(Object.assign(blank(),JSON.parse(JSON.stringify(next)))); if(seen) S.alertSeen=seen;
+    this.quiet=true; Store.save(S); this.quiet=false;
+    if(keepView){ const y=window.scrollY; render(); window.scrollTo(0,y); } else render();
+  }
+};
+window.SyncRef=Sync;
+function paintSync(){
+  const el=document.getElementById("syncDot"); if(el){ el.className="sdot "+(Sync.on?Sync.state:"off"); el.title=syncLabel(); }
+  const st=document.getElementById("syncState"); if(st) st.innerHTML=syncLabel();
+}
+function syncLabel(){
+  if(!Sync.on) return "Désactivée sur ce téléphone";
+  const h=Sync.last?new Date(Sync.last).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}):"";
+  return ({ok:"À jour"+(h?" · "+h:""),sending:"Envoi en cours…",connect:"Connexion…",offline:"Hors ligne, les changements partiront au retour du réseau",error:"Erreur : "+esc(Sync.err||"inconnue")})[Sync.state]||"…";
+}
+function syncCard(){
+  if(!Sync.available()) return "";
+  if(!Sync.on) return `<div class="card">
+    <span class="eyebrow">Synchronisation à deux</span>
+    <div class="hint" style="margin:6px 0 12px">Partage le budget avec un second téléphone : chaque saisie apparaît chez l'autre en quelques secondes. Les données sont chiffrées sur le téléphone avec votre mot de passe commun, le serveur ne voit rien.</div>
+    <button class="btn sm" onclick="editSync()">Activer sur ce téléphone</button></div>`;
+  return `<div class="card">
+    <div class="sec"><span class="eyebrow">Synchronisation à deux</span><button class="act" onclick="Sync.push()">Synchroniser</button></div>
+    <div class="calc">
+      <div class="l"><span class="n">État</span><span class="a" style="font-weight:520;font-family:var(--sans);text-align:right" id="syncState">${syncLabel()}</span></div>
+      <div class="l"><span class="n">Ce téléphone</span><span class="a" style="font-weight:520">${esc(Sync.cfg.name||"sans nom")}</span></div>
+    </div>
+    <button class="btn sm ghost" style="margin-top:10px" onclick="leaveSync()">Désactiver sur ce téléphone</button></div>`;
+}
+function editSync(pre){
+  const hasData=Object.values(S.months).some(M=>M.ops.length>0)||S.recurring.length>0;
+  openSheet("Synchronisation à deux",
+    `Le même mot de passe commun sur les deux téléphones. <b>Le premier téléphone envoie ses données, le second les reprend</b> (les siennes sont remplacées, une copie est gardée). Sans ce mot de passe, impossible de relire les données : notez-le bien.`,
+    [{k:"mode",label:"Ce téléphone",type:"seg",options:[{v:"create",t:"Premier téléphone"},{v:"join",t:"Rejoindre l'autre"}]},
+     {k:"name",label:"Prénom de la personne qui utilise ce téléphone",type:"text",ph:"Abdelghani"},
+     {k:"p1",label:"Mot de passe commun (10 caractères minimum)",type:"text",ph:""},
+     {k:"p2",label:"Le même, une seconde fois",type:"text",ph:""}],
+    {mode:pre||(hasData?"create":"join"),name:"",p1:"",p2:""},
+    d=>{ const p=(d.p1||"").trim();
+      if(p.length<10){ toast("10 caractères minimum, par exemple une petite phrase"); return false; }
+      if(p!==(d.p2||"").trim()){ toast("Les deux mots de passe ne sont pas identiques"); return false; }
+      toast("Connexion au foyer…");
+      Sync.join(p,d.name,d.mode).then(created=>{ tab="today"; render(); toast(created?"Synchronisation activée<br>Fais pareil sur l'autre téléphone, avec le même mot de passe":"Téléphone relié au foyer<br>Les données partagées sont chargées"); })
+        .catch(e=>{ Sync.cfg=null; Sync.saveCfg(); toast("Échec : "+esc(e.message||e)); render(); });
+    });
+  const b=sheetBody; ["p1","p2"].forEach(k=>{ const i=b.querySelector(`[data-k="${k}"]`); i.type="password"; i.autocomplete="new-password"; i.setAttribute("autocapitalize","off"); });
+}
+function leaveSync(){
+  openSheet("Désactiver la synchronisation","Ce téléphone garde ses données mais ne reçoit plus celles de l'autre. Les données partagées restent sur le serveur, chiffrées. Tu pourras réactiver avec le même mot de passe.",
+    [],{},()=>{ Sync.leave(); toast("Synchronisation désactivée sur ce téléphone"); },null);
+  sheetBody.querySelector("#shOk").textContent="Désactiver";
+}
+window.addEventListener("online",()=>Sync.on&&(Sync.be?Sync.push():Sync.start()));
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&Sync.on){ if(Sync.be) Sync.push(); else Sync.start(); } });
+
 (async function init(){
   const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); fixOct2Once(); }
-  month(cur); render();
+  Sync.loadCfg(); month(cur); render(); Sync.start();
   if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}); }catch(e){} }
 })();
 </script>
