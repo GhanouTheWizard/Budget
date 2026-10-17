@@ -2032,11 +2032,10 @@ document.querySelectorAll("[data-ico]").forEach(e=>e.innerHTML=ico(e.dataset.ico
 document.querySelectorAll("nav button").forEach(b=>b.onclick=()=>go(b.dataset.tab));
 document.getElementById("fab").onclick=()=>{ if(tab==="epargne") editMove(); else editOp(); };
 
-/* ================= synchronisation à deux (Firebase, chiffré sur le téléphone) =================
+/* ================= synchronisation à deux (Supabase, chiffré sur le téléphone) =================
    Le serveur ne reçoit qu'un bloc chiffré (AES-GCM, clé tirée du mot de passe commun).
    Fusion à trois voies : dernier état commun (base), ce téléphone (local), l'autre téléphone (serveur). */
-const FB_CONFIG=null;   // rempli avec la configuration Firebase du foyer
-const FB_V="10.12.2";
+const SB={url:"https://jwoqkbrwzborlgphfnqu.supabase.co",key:"sb_publishable_H0CgHvla4pRK5Xn_sAIFag_lqTGbFe1"};
 const SYNC_KEY="budget2.sync", SYNC_BASE="budget2.syncbase";
 const LOCAL_ONLY=["alertSeen"];   // propre à chaque téléphone
 function canon(x){ return JSON.parse(JSON.stringify(x,(k,v)=>(k&&k[0]==="_")||LOCAL_ONLY.includes(k)?undefined:v)); }
@@ -2094,31 +2093,34 @@ async function openData(doc,k64){
   return JSON.parse(dec8.decode(bytes));
 }
 
-/* serveur Firebase : lecture, écriture conditionnelle (comme un verrou), écoute en direct */
-async function firebaseBackend(hid){
-  const base="https://www.gstatic.com/firebasejs/"+FB_V+"/";
-  const [A,Au,F]=await Promise.all([import(base+"firebase-app.js"),import(base+"firebase-auth.js"),import(base+"firebase-firestore.js")]);
-  const app=A.getApps().length?A.getApp():A.initializeApp(FB_CONFIG);
-  const auth=Au.getAuth(app); if(!auth.currentUser) await Au.signInAnonymously(auth);
-  const db=F.getFirestore(app), ref=F.doc(db,"foyers",hid);
+/* serveur Supabase : le foyer est une ligne chiffrée, accessible seulement via son identifiant secret */
+async function supabaseBackend(hid){
+  const rpc=async(fn,args)=>{ const r=await fetch(SB.url+"/rest/v1/rpc/"+fn,{method:"POST",cache:"no-store",
+      headers:{"apikey":SB.key,"Content-Type":"application/json"},body:JSON.stringify(args)});
+    if(!r.ok) throw new Error("serveur "+r.status); return r.json(); };
   return {
-    async get(){ const s=await F.getDoc(ref); return s.exists()?s.data():null; },
-    async cas(expV,data){ try{ await F.runTransaction(db,async tx=>{ const s=await tx.get(ref); const v=s.exists()?(s.data().v||0):0;
-        if(v!==expV) throw new Error("conflit"); tx.set(ref,Object.assign({},data,{at:F.serverTimestamp()})); }); return true; }
-      catch(e){ if(e&&e.message==="conflit") return false; throw e; } },
-    listen(cb){ return F.onSnapshot(ref,s=>{ if(!s.metadata.hasPendingWrites&&s.exists()) cb(s.data()); },e=>Sync.fail(e)); }
+    async get(){ const rows=await rpc("foyer_get",{p_hid:hid}); return rows&&rows.length?rows[0]:null; },
+    async cas(expV,data){ return !!(await rpc("foyer_cas",{p_hid:hid,p_expected:expV,p_iv:data.iv,p_d:data.d,p_z:!!data.z,p_by:data.by||null})); },
+    /* surveillance légère : on regarde le numéro de version toutes les 4 s quand l'app est ouverte */
+    listen(cb){ let stop=false, seen=0, t=null;
+      const tick=async()=>{ if(stop) return;
+        if(document.visibilityState==="visible"){ try{ const v=await rpc("foyer_ver",{p_hid:hid});
+          if(v&&v>Math.max(seen,(Sync.cfg&&Sync.cfg.ver)||0)){ seen=v; const d=await this.get(); if(d) cb(d); }
+          if(Sync.state==="offline"||Sync.state==="error") Sync.status("ok"); }catch(e){ Sync.fail(e); } }
+        t=setTimeout(tick,4000); };
+      t=setTimeout(tick,1500); return ()=>{ stop=true; clearTimeout(t); }; }
   };
 }
 
 const Sync={
   cfg:null, be:null, state:"off", last:null, err:"", busy:false, again:false, held:null, unsub:null, t:null,
   get on(){ return !!(this.cfg&&this.cfg.hid); },
-  available(){ return !!(FB_CONFIG||window.__mockBackend) && !!(window.crypto&&crypto.subtle); },
+  available(){ return !!(SB.url||window.__mockBackend) && !!(window.crypto&&crypto.subtle); },
   loadCfg(){ try{ this.cfg=JSON.parse(localStorage.getItem(SYNC_KEY)||"null"); }catch(e){ this.cfg=null; } },
   saveCfg(){ try{ if(this.cfg) localStorage.setItem(SYNC_KEY,JSON.stringify(this.cfg)); else localStorage.removeItem(SYNC_KEY); }catch(e){} },
   base(){ try{ return JSON.parse(localStorage.getItem(SYNC_BASE)||"null"); }catch(e){ return null; } },
   setBase(b,v){ try{ localStorage.setItem(SYNC_BASE,JSON.stringify(b)); }catch(e){} this.cfg.ver=v; this.saveCfg(); },
-  backend(hid){ return window.__mockBackend?window.__mockBackend(hid):firebaseBackend(hid); },
+  backend(hid){ return window.__mockBackend?window.__mockBackend(hid):supabaseBackend(hid); },
   status(s,e){ this.state=s; if(e!==undefined) this.err=e; if(s==="ok") this.last=Date.now(); paintSync(); },
   fail(e){ console.warn(e); this.status(navigator.onLine===false?"offline":"error",String(e&&e.message||e)); },
 
