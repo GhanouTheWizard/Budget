@@ -116,6 +116,9 @@ main{padding:14px var(--pad) 8px;max-width:620px;margin:0 auto}
 .tabs{display:flex;gap:6px;overflow-x:auto;margin-bottom:12px;padding-bottom:2px;-webkit-overflow-scrolling:touch}
 .tabs button{flex:none;padding:8px 13px;border-radius:999px;background:var(--surface);border:1px solid var(--line-soft);font-size:13.5px;font-weight:520;white-space:nowrap;display:flex;align-items:center;gap:6px}
 .tabs button.on{background:var(--ink);color:#fff;border-color:var(--ink)}
+.tabs.cats{margin-top:-4px} .tabs.cats button{font-size:13px;padding:7px 12px}
+.tabs.cats button b{font-weight:650;font-variant-numeric:tabular-nums;color:var(--ink-3);margin-left:2px} .tabs.cats button.on b{color:rgba(255,255,255,.8)}
+.tabs.cats button.on{background:var(--orange);border-color:var(--orange)}
 .banner{background:var(--amber-soft);color:#6B4405;border:1px solid #EBD8AE;border-radius:12px;padding:10px 12px;font-size:12.5px;line-height:1.45;margin-bottom:12px}
 .banner.info{background:var(--teal-soft);color:#1E4F46;border-color:#BFDDD5}
 .hint{font-size:12.5px;color:var(--ink-3);line-height:1.5;margin-top:10px}
@@ -382,7 +385,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v17 · 17 octobre 2026";
+const APP_VERSION="v18 · 17 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -458,7 +461,7 @@ function blank(){
     months:{}
   };
 }
-let S=blank(), cur=ymNow(), tab="today", filFilter="all", filDay=null;
+let S=blank(), cur=ymNow(), tab="today", filFilter="all", filDay=null, filCat=null;
 
 function ymNow(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0"); }
 function ymShift(ym,n){ let [y,m]=ym.split("-").map(Number); m+=n; while(m>12){m-=12;y++;} while(m<1){m+=12;y--;} return y+"-"+String(m).padStart(2,"0"); }
@@ -679,6 +682,7 @@ function renderInner(){
   document.getElementById("savBtn").classList.toggle("on",tab==="epargne");
   view.innerHTML=(tab==="reglages"?"":periodCard())+({today:vToday,fil:vFil,mois:vMois,stats:vStats,env:vEnv,epargne:vEpargne,reglages:vReglages})[tab]();
   window.scrollTo(0,0);
+  const cs=view.querySelector(".tabs.cats .on"); if(cs) cs.parentNode.scrollLeft=Math.max(0,cs.offsetLeft-16);
   const ds=view.querySelector(".days .on"); if(ds) ds.parentNode.scrollLeft=ds.offsetLeft-ds.parentNode.clientWidth/2+ds.offsetWidth/2;
   const af=view.querySelector(".arc path.f"); if(af) requestAnimationFrame(()=>requestAnimationFrame(()=>{ af.style.strokeDashoffset=af.dataset.off; }));
   requestAnimationFrame(()=>requestAnimationFrame(()=>{ document.querySelectorAll("[data-w]").forEach(e=>e.style.width=e.dataset.w+"%"); }));
@@ -1121,7 +1125,7 @@ function vStats(){
   const rows=Object.keys(C.byCat).map(id=>({c:cat(id),v:C.byCat[id]})).filter(r=>r.v>0.5).sort((a,b)=>b.v-a.v);
   const cmax=Math.max(1,...rows.map(r=>Math.max(r.v,+r.c.budget||0)));
   const cats=rows.map(r=>{ const b=+r.c.budget||0, ov=b&&r.v>b;
-    return `<div class="cbar" ${tipAttr(r.c.name+" : "+eur(r.v)+(b?" sur "+eur0(b):""))}><div class="h"><span>${esc(r.c.name)}</span><span class="a" style="${ov?"color:var(--alert)":""}">${eur0(r.v)}${b?` <small>/ ${eur0(b)}</small>`:""}</span></div>
+    return `<div class="cbar" style="cursor:pointer" onclick="catFil('${r.c.id}')" ${tipAttr(r.c.name+" : "+eur(r.v)+(b?" sur "+eur0(b):""))}><div class="h"><span>${esc(r.c.name)}</span><span class="a" style="${ov?"color:var(--alert)":""}">${eur0(r.v)}${b?` <small>/ ${eur0(b)}</small>`:""}</span></div>
       <div class="t"><i class="${ov?"over":""}" data-w="${(r.v/cmax*100).toFixed(1)}"></i>${b?`<b style="left:calc(${(b/cmax*100).toFixed(1)}% - 1px)"></b>`:""}</div></div>`; }).join("");
 
   // 4. mois par mois
@@ -1329,12 +1333,39 @@ function vToday(){
 /* ---------- Le fil ---------- */
 function filFor(aid){ filFilter=aid; tab="fil"; render(); }
 function setFil(f){ filFilter=f; filDay=null; render(); }
+function setCat(c){ filCat=c; const y=scrollY; render(); scrollTo(0,c?0:y); }
+function catFil(c){ filCat=c; filFilter="all"; filDay=null; tab="fil"; render(); }
+/* dépenses nettes (remboursements déduits) par catégorie, pour un mois et éventuellement un compte */
+function catSpend(ym,acc){ const M=S.months[ym]; const out={}, n={}; if(!M) return {out,n};
+  const ref={}; M.ops.forEach(o=>{ if(o.kind==="in"&&o.refundOf) ref[o.refundOf]=(ref[o.refundOf]||0)+(+o.amount||0); });
+  M.ops.forEach(o=>{ if(o.kind!=="out"||(acc&&o.account!==acc)) return; out[o.category]=(out[o.category]||0)+Math.max(0,(+o.amount||0)-(ref[o.id]||0)); n[o.category]=(n[o.category]||0)+1; });
+  return {out,n}; }
+function catBar(acc){
+  const {out}=catSpend(cur,acc), ids=Object.keys(out).filter(id=>out[id]>0.005).sort((a,b)=>out[b]-out[a]);
+  if(!ids.length&&!filCat) return "";
+  if(filCat&&!ids.includes(filCat)) ids.unshift(filCat);
+  return `<div class="tabs cats"><button class="${!filCat?"on":""}" onclick="setCat(null)">Toutes catégories</button>
+    ${ids.map(id=>`<button class="${filCat===id?"on":""}" onclick="setCat('${id}')">${esc(cat(id).name)}<b>${eur0(out[id]||0)}</b></button>`).join("")}</div>`;
+}
+function catSummary(acc){
+  const c=cat(filCat), {out,n}=catSpend(cur,acc), v=out[filCat]||0, tot=Object.values(out).reduce((a,x)=>a+x,0);
+  const prev=catSpend(ymShift(cur,-1),acc).out[filCat]||0, hasPrev=!!S.months[ymShift(cur,-1)], b=+c.budget||0;
+  const pc=b?Math.min(100,v/b*100):0, ov=b&&v>b, d=v-prev;
+  return `<div class="card catsum">
+    <div class="sec"><span class="eyebrow">${esc(c.name)}${acc?" · "+esc(accName(acc)):""}</span><button class="act" onclick="setCat(null)">Tout voir ×</button></div>
+    <div class="big ${ov?"neg":""}" style="font-size:30px;margin-bottom:6px">${eur(v)}</div>
+    <div class="hint" style="margin:0 0 ${b?10:0}px">${n[filCat]||0} dépense${(n[filCat]||0)>1?"s":""} ce mois${tot>0?` · ${Math.round(v/tot*100)} % des dépenses`:""}${hasPrev?` · ${MONTHS[ymParts(ymShift(cur,-1)).m-1]} : ${eur0(prev)}${Math.abs(d)>=1?` <b style="color:${d>0?"var(--alert)":"var(--teal)"}">(${d>0?"+":"−"}${eur0(Math.abs(d))})</b>`:""}`:""}</div>
+    ${b?`<div class="bar"><i class="${ov?"r":pc>=90?"r":pc>=70?"w":""}" data-w="${pc.toFixed(1)}"></i></div>
+      <div class="hint" style="margin-top:6px">${ov?`Plafond de ${eur0(b)} dépassé de <b style="color:var(--alert)">${eur0(v-b)}</b>`:`Reste <b>${eur0(b-v)}</b> sur un plafond de ${eur0(b)}`}</div>`:""}
+  </div>`;
+}
 function vFil(){
   const M=month(cur), C=calc(cur);
   let ops=M.ops.slice();
   if(filFilter==="pending") ops=ops.filter(o=>!o.seen);
   else if(filFilter!=="all") ops=ops.filter(o=>o.account===filFilter);
-  if(filFilter!=="pending"){
+  if(filCat) ops=ops.filter(o=>o.category===filCat);
+  if(filFilter!=="pending"&&!filCat){
     M.transfers.filter(t=>t.done&&(filFilter==="all"||t.from===filFilter||t.to===filFilter)).forEach(t=>ops.push({_t:"tr",id:t.id,day:t.day||1,amount:t.amount,from:t.from,to:t.to,label:t.label}));
     (M.adjust||[]).filter(j=>filFilter==="all"||j.account===filFilter).forEach(j=>ops.push({_t:"adj",id:j.id,day:j.day||1,amount:j.amount,account:j.account,label:j.label,ts:j.ts}));
     M.moves.filter(m=>filFilter==="all"||m.account===filFilter).forEach(m=>ops.push({_t:"mv",id:m.id,day:m.day||1,amount:m.amount,kind:m.kind,account:m.account,savingsId:m.savingsId,label:m.label}));
@@ -1373,11 +1404,13 @@ function vFil(){
     ${S.accounts.map(a=>`<button class="${filFilter===a.id?"on":""}" onclick="setFil('${a.id}')"><span class="dot" style="background:${accColor(a.id)}"></span>${esc(a.name)}</button>`).join("")}
     <button class="${filFilter==="pending"?"on":""}" onclick="setFil('pending')">En attente${C.nPending?" · "+C.nPending:""}</button>
   </div>
+  ${filFilter!=="pending"?catBar(filFilter==="all"?null:filFilter):""}
+  ${filCat&&filFilter!=="pending"?catSummary(filFilter==="all"?null:filFilter):""}
   ${filDay?`<div class="banner info" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>Seulement le ${DAYS[new Date(ymParts(cur).y,ymParts(cur).m-1,filDay).getDay()]} ${filDay} · ${eur(spentOn(M,filDay))} dépensés</span><button class="act" style="color:var(--teal);font-weight:600;flex:none" onclick="filDay=null;render()">Tout le mois</button></div>`:``}
   ${C.nPending?`<div class="banner info" style="display:flex;justify-content:space-between;align-items:center;gap:10px"><span>${C.nPending} opération${C.nPending>1?"s":""} pas encore vue${C.nPending>1?"s":""} à la banque (${eur0(C.pendingTot)}).</span><button class="act" style="color:var(--teal);font-weight:600;flex:none" onclick="markAllSeen()">Tout pointer</button></div>`:``}
   <div class="card">
     ${days.length? days.map(d=>`<div class="daylabel">${dayName(d)} ${d}</div>${byDay[d].map(opRow).join("")}`).join("")
-      : `<div class="empty"><b>Rien pour l'instant.</b>Le bouton + ajoute une dépense en trois gestes : montant, compte, catégorie.</div>`}
+      : filCat?`<div class="empty"><b>Aucune dépense dans cette catégorie ce mois-ci.</b></div>`:`<div class="empty"><b>Rien pour l'instant.</b>Le bouton + ajoute une dépense en trois gestes : montant, compte, catégorie.</div>`}
   </div>`;
 }
 
@@ -1491,7 +1524,7 @@ function bilanCard(C){
       <div class="l res"><span class="n">Résultat${P?`<small>${pName} : ${eur0(P.salaryTot+P.recvTot+P.extraTot-P.fixed-P.spentAll)}</small>`:""}</span><span class="a ${res<0?"minus":"plus"}">${res>=0?"+":""}${eur(res)}</span></div>
       ${rows.length?`<div class="l head"><span class="n">Par catégorie</span>${P?`<span class="n" style="font-family:var(--mono);font-size:10px;letter-spacing:.14em;color:var(--ink-3)">VS ${esc(pName.toUpperCase())}</span>`:""}</div>`:""}
       ${rows.map(r=>{ const c=cat(r.id), b=+c.budget||0, d=r.p==null?null:r.v-r.p;
-        return `<div class="l"><span class="n">${esc(c.name)}<small>${b?`plafond ${eur0(b)}${r.v>b?` · <span style="color:var(--alert)">dépassé</span>`:""}`:"sans plafond"}</small></span>
+        return `<div class="l tap" onclick="catFil('${r.id}')"><span class="n">${esc(c.name)}<small>${b?`plafond ${eur0(b)}${r.v>b?` · <span style="color:var(--alert)">dépassé</span>`:""}`:"sans plafond"}</small></span>
           <span class="a">${eur0(r.v)}${d!=null&&Math.abs(d)>=1?` <small style="font-weight:500;color:${d>0?"var(--alert)":"var(--teal)"}">${d>0?"+":"−"}${eur0(Math.abs(d))}</small>`:""}</span></div>`; }).join("")}
     </div>
   </div>`;
@@ -1616,7 +1649,7 @@ function openSheet(title,lead,fields,values,onSave,onDelete,delLabel){
 }
 function accOpts(){ return S.accounts.map(a=>({v:a.id,t:a.name,dot:accColor(a.id)})); }
 function toast(msg){ const t=document.getElementById("toast"); t.innerHTML=msg; t.classList.add("on"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("on"),3600); }
-function go(t){ if(t!=="fil") filDay=null; tab=t; render(); }
+function go(t){ if(t!=="fil"){ filDay=null; filCat=null; } tab=t; render(); }
 
 /* ================= actions : le fil ================= */
 function toggleSeen(id){ const o=month(cur).ops.find(x=>x.id===id); if(o){ o.seen=!o.seen; persist(); render(); } }
@@ -1642,7 +1675,7 @@ function editOp(id){
      {k:"label",label:"Détail (facultatif)",type:"text",ph:"Carrefour, Dr Martin…"},
      {k:"day",label:"Jour",type:"day"}],
     it?{kind:it.kind,amount:it.amount,account:it.account,to:otherAcc,category:it.category,label:it.label,day:it.day}
-      :{kind:"out",amount:"",account:defAcc,to:otherAcc,category:S.categories[0].id,label:"",day:today()},
+      :{kind:"out",amount:"",account:defAcc,to:otherAcc,category:filCat||S.categories[0].id,label:"",day:today()},
     d=>{ const a=num(d.amount); if(a<=0){toast("Indique un montant");return false;}
       if(d.kind==="salary"){
         const o={label:(d.label||"").trim()||S.defaults.salaryLabel||"Salaire",amount:a,account:d.account,got:true};
