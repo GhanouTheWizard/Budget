@@ -1,0 +1,17 @@
+{
+  "name": "Studio",
+  "short_name": "Studio",
+  "description": "Idées, production, calendrier et stats pour Instagram, TikTok et YouTube.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F3F0EA",
+  "theme_color": "#1E1B2E",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon-180.png?v=1", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png?v=1", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png?v=1", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
