@@ -385,7 +385,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v19 · 17 octobre 2026";
+const APP_VERSION="v20 · 21 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1184,6 +1184,7 @@ function vStats(){
     ${cats||`<div class="empty">Pas encore de dépense ce mois.</div>`}
     ${rows.some(r=>+r.c.budget)?`<div class="hint">Le trait noir marque le plafond. Barre rouge : plafond dépassé.</div>`:""}
   </div>
+  ${reportCard()}
   ${monthsChart?`<div class="card"><span class="eyebrow">Résultat mois par mois</span>${monthsChart}${hist.some(h=>h.ym===ymNow())?`<div class="hint">* Mois en cours : le résultat bougera jusqu'à la clôture.</div>`:""}</div>`:""}
   ${savChart?`<div class="card"><span class="eyebrow">Épargne totale</span><div class="big teal" style="font-size:26px">${eur(savingsTotal())}</div>${savChart}</div>`:""}`;
 }
@@ -1338,7 +1339,7 @@ function catFil(c){ filCat=c; filFilter="all"; filDay=null; tab="fil"; render();
 /* dépenses nettes (remboursements déduits) par catégorie, pour un mois et éventuellement un compte */
 function catSpend(ym,acc){ const M=S.months[ym]; const out={}, n={}; if(!M) return {out,n};
   const ref={}; M.ops.forEach(o=>{ if(o.kind==="in"&&o.refundOf) ref[o.refundOf]=(ref[o.refundOf]||0)+(+o.amount||0); });
-  M.ops.forEach(o=>{ if(o.kind!=="out"||(acc&&o.account!==acc)) return; out[o.category]=(out[o.category]||0)+Math.max(0,(+o.amount||0)-(ref[o.id]||0)); n[o.category]=(n[o.category]||0)+1; });
+  M.ops.forEach(o=>{ if(o.kind!=="out"||o.proj||(acc&&o.account!==acc)) return; out[o.category]=(out[o.category]||0)+Math.max(0,(+o.amount||0)-(ref[o.id]||0)); n[o.category]=(n[o.category]||0)+1; });
   return {out,n}; }
 function catBar(acc){
   const {out}=catSpend(cur,acc), ids=Object.keys(out).filter(id=>out[id]>0.005).sort((a,b)=>out[b]-out[a]);
@@ -1604,6 +1605,7 @@ function vReglages(){
     <div class="chips">${S.categories.map(c=>`<button onclick="editCategory('${c.id}')">${esc(c.name)}${c.pocket==="courses"?" 🛒":c.pocket==="repas"?" 🍽":""}${c.refund?" ↩":""}${+c.budget?` · ${eur0(c.budget)}`:""}</button>`).join("")}</div>
     <div class="hint">🛒 alimente l'enveloppe courses, 🍽 les paniers repas, ↩ attend un remboursement. Le reste consomme la sécurité du compte. Le montant affiché est le plafond mensuel.</div>
   </div>
+  ${reportCard()}
   ${syncCard()}
   <div class="card">
     <span class="eyebrow">Sauvegarde</span>
@@ -2294,6 +2296,242 @@ function leaveSync(){
 }
 window.addEventListener("online",()=>Sync.on&&(Sync.be?Sync.push():Sync.start()));
 document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&Sync.on){ if(Sync.be) Sync.push(); else Sync.start(); } });
+
+/* ================= rapports PDF et Excel ================= */
+const LIBS={pdf:["lib/jspdf.umd.min.js","lib/jspdf.plugin.autotable.min.js"],xlsx:["lib/exceljs.min.js"]}, _loaded={};
+function loadScript(src){ return _loaded[src]||(_loaded[src]=new Promise((ok,ko)=>{ const s=document.createElement("script"); s.src=src; s.onload=ok; s.onerror=()=>{ delete _loaded[src]; ko(new Error("chargement impossible, vérifie le réseau")); }; document.head.appendChild(s); })); }
+async function loadLibs(k){ for(const s of LIBS[k]) await loadScript(s); }
+
+/* toutes les données du rapport pour un mois */
+function reportData(ym){
+  const M=month(ym), C=calc(ym), {y,m}=ymParts(ym), now=new Date(), isNow=ym===ymNow();
+  const accs=S.accounts.map(a=>{ const x=C.A[a.id]||{}, F=forecast(ym,a.id)||{}; return {name:a.name,start:+x.start||0,now:isNow?F.now:x.real,end:F.end!=null?F.end:x.real,over:+a.overdraft||0}; });
+  const inc=C.salaryTot+C.recvTot+C.extraTot;
+  const chargesPaid=Object.values(C.A).reduce((t,x)=>t+x.chargesPaid,0);
+  const spent=(isNow?chargesPaid:C.fixed)+C.spentAll+C.projSpentM;
+  const {out,n}=catSpend(ym), prev=catSpend(ymShift(ym,-1)).out, hasPrev=!!(S.months[ymShift(ym,-1)]&&S.months[ymShift(ym,-1)].ops.length);
+  const cats=Object.keys(out).filter(id=>out[id]>0.005).map(id=>({name:cat(id).name,v:r2(out[id]),n:n[id]||0,b:(+cat(id).budget||0)||(cat(id).pocket==="courses"?C.courses:0),p:hasPrev?r2(prev[id]||0):null})).sort((a,b)=>b.v-a.v);
+  const charges=M.charges.slice().sort((a,b)=>(a.day||99)-(b.day||99)).map(c=>({day:c.day,label:c.label,acc:accName(c.account),v:+c.amount||0,paid:isPaid(ym,c)}));
+  const ops=[];
+  M.ops.forEach(o=>{ const c=cat(o.category); ops.push({day:o.day||1,label:o.label||c.name,cat:o.kind==="in"?(o.refundOf?"Remboursement":"Rentrée"):c.name,acc:accName(o.account),v:(o.kind==="in"?1:-1)*(+o.amount||0),seen:!!o.seen,by:o.by||""}); });
+  M.salary.filter(s=>s.got&&(+s.amount||0)>0).forEach(s=>ops.push({day:s.day||1,label:s.label||"Salaire",cat:"Salaire",acc:accName(s.account),v:+s.amount,seen:true,by:""}));
+  M.transfers.filter(t=>t.done).forEach(t=>ops.push({day:t.day||1,label:t.label||"Virement interne",cat:"Virement",acc:accName(t.from)+" > "+accName(t.to),v:+t.amount||0,seen:true,by:"",tr:true}));
+  M.moves.forEach(mv=>{ const sv=(S.savings.find(x=>x.id===mv.savingsId)||{}).name||"Épargne"; ops.push({day:mv.day||1,label:mv.label||(mv.kind==="in"?"Mise de côté":"Retrait"),cat:"Épargne",acc:mv.kind==="in"?accName(mv.account)+" > "+sv:sv+" > "+accName(mv.account),v:(mv.kind==="in"?-1:1)*(+mv.amount||0),seen:true,by:""}); });
+  (M.adjust||[]).forEach(j=>ops.push({day:j.day||1,label:j.label||"Correction du solde",cat:"Correction",acc:accName(j.account),v:+j.amount||0,seen:true,by:""}));
+  ops.sort((a,b)=>a.day-b.day);
+  let hm=monthsWithData().filter(x=>x<=ym).slice(-6); if(!hm.includes(ym)&&S.months[ym]) hm=hm.concat([ym]).slice(-6);
+  const hist=hm.map(h=>{ const c=calc(h), i=c.salaryTot+c.recvTot+c.extraTot; return {ym:h,label:MSHORT[ymParts(h).m-1]+" "+String(ymParts(h).y).slice(2),inc:i,fixed:c.fixed,spent:c.spentAll+c.projSpentM,res:i-c.fixed-c.spentAll-c.projSpentM,saved:c.savedNet}; });
+  const savings=S.savings.map(v=>({name:v.name,v:savBalance(v.id)}));
+  return {ym,title:MONTHS[m-1]+" "+y,isNow,when:isNow?`${DAYS[now.getDay()]} ${now.getDate()} ${MONTHS[now.getMonth()]} ${now.getFullYear()}`:`fin ${MONTHS[m-1]} ${y}`,
+    accs,inc,spent,fixed:C.fixed,chargesLeft:C.fixed-chargesPaid,totNow:accs.reduce((t,a)=>t+a.now,0),totEnd:accs.reduce((t,a)=>t+a.end,0),
+    cats,catTot:cats.reduce((t,c)=>t+c.v,0),charges,ops,hist,savings,savTot:savingsTotal(),moves:M.moves,courses:{b:C.courses,s:C.spentCourses},reste:C.reste,
+    pending:C.nPending?{n:C.nPending,v:C.pendingTot}:null};
+}
+const fileName=(R,ext)=>"Budget-"+R.ym+"."+ext;
+
+/* remise du fichier : partage iOS (Fichiers, Mail, WhatsApp…) ou téléchargement */
+function deliver(blob,name,label){
+  const file=new File([blob],name,{type:blob.type}), canShare=!!(navigator.canShare&&navigator.canShare({files:[file]}));
+  const url=URL.createObjectURL(blob);
+  const body=openSheet(label+" prêt",`<b>${esc(name)}</b> · ${Math.max(1,Math.round(blob.size/1024))} Ko`,
+    [{k:"x",type:"html",html:`<div class="btnrow" style="flex-direction:column;gap:8px">
+      ${canShare?`<button type="button" class="btn" id="rpShare">Ouvrir, enregistrer ou envoyer</button>`:""}
+      <a class="btn ${canShare?"ghost":""}" id="rpDl" href="${url}" download="${esc(name)}" style="text-decoration:none">Télécharger</a></div>
+      <div class="hint">${canShare?"« Enregistrer dans Fichiers » le garde sur l'iPhone. Excel et Numbers ouvrent le tableau, Fichiers affiche le PDF.":"Le fichier arrive dans tes téléchargements."}</div>`}],{},()=>{});
+  body.querySelector("#shOk").textContent="Fermer"; const cc=body.querySelector("#shCancel"); if(cc) cc.style.display="none";
+  document.getElementById("toast").classList.remove("on");
+  const sh=body.querySelector("#rpShare"); if(sh) sh.onclick=async()=>{ try{ await navigator.share({files:[file],title:name}); }catch(e){ if(e&&e.name!=="AbortError") toast("Partage impossible : utilise Télécharger"); } };
+  setTimeout(()=>URL.revokeObjectURL(url),10*60*1000);
+}
+async function makeReport(kind){
+  toast(kind==="pdf"?"Préparation du PDF…":"Préparation du tableau…");
+  try{ await loadLibs(kind); const R=reportData(cur); const blob=kind==="pdf"?buildPdf(R):await buildXlsx(R); deliver(blob,fileName(R,kind==="pdf"?"pdf":"xlsx"),kind==="pdf"?"Rapport PDF":"Tableau Excel"); }
+  catch(e){ console.error(e); toast("Export impossible : "+esc(e.message||e)); }
+}
+function reportCard(){
+  return `<div class="card">
+    <span class="eyebrow">Rapport de ${esc(MONTHS[ymParts(cur).m-1])}</span>
+    <div class="hint" style="margin:6px 0 12px">Comptes, dépenses par catégorie, prélèvements, six derniers mois, épargne et détail des opérations.</div>
+    <div class="btnrow"><button class="btn sm" onclick="makeReport('pdf')">Rapport PDF</button><button class="btn sm ghost" onclick="makeReport('xlsx')">Tableau Excel</button></div>
+  </div>`;
+}
+
+/* ---------- PDF ---------- */
+const PC={forest:[46,82,55],forest2:[63,107,74],orange:[243,154,30],red:[183,64,44],teal:[47,107,69],ink:[31,42,34],ink2:[74,86,77],grey:[138,147,140],light:[243,242,238],line:[222,221,214],white:[255,255,255]};
+function pt(s){ return String(s==null?"":s).replace(/[  ]/g," ").replace(/[−–—]/g,"-").replace(/[→]/g,">").replace(/[’]/g,"'").replace(/[^\x00-\xff€Œœ]/g,""); }
+function pm(v,sign){ const s=Math.abs(v).toLocaleString("fr-FR",{minimumFractionDigits:2,maximumFractionDigits:2}).replace(/[  ]/g," ")+" €"; return (v<-0.004?"-":(sign&&v>0.004?"+":""))+s; }
+function pm0(v){ return (v<-0.4?"-":"")+Math.round(Math.abs(v)).toLocaleString("fr-FR").replace(/[  ]/g," ")+" €"; }
+function buildPdf(R){
+  const {jsPDF}=window.jspdf, doc=new jsPDF({unit:"mm",format:"a4"}), W=210, H=297, m=14, cw=W-2*m;
+  let y=0;
+  const col=(c,k)=>doc[k||"setTextColor"](...c);
+  const need=h=>{ if(y+h>H-16){ doc.addPage(); y=16; } };
+  const title=(t,sub)=>{ need(16); y+=4; col(PC.ink); doc.setFont("helvetica","bold"); doc.setFontSize(12.5); doc.text(pt(t),m,y);
+    if(sub){ col(PC.grey); doc.setFont("helvetica","normal"); doc.setFontSize(8.5); doc.text(pt(sub),W-m,y,{align:"right"}); }
+    col(PC.orange,"setDrawColor"); doc.setLineWidth(.8); doc.line(m,y+2,m+12,y+2); y+=7; };
+  const table=(head,body,opt)=>{ doc.autoTable(Object.assign({startY:y,head:[head.map(pt)],body:body.map(r=>r.map(c=>typeof c==="object"&&c?Object.assign({},c,{content:pt(c.content)}):pt(c))),margin:{left:m,right:m},
+      theme:"plain",styles:{font:"helvetica",fontSize:8.6,cellPadding:{top:1.7,bottom:1.7,left:2,right:2},textColor:PC.ink,lineColor:PC.line,lineWidth:{bottom:.15}},
+      headStyles:{fillColor:PC.forest,textColor:PC.white,fontStyle:"bold",fontSize:8.2},alternateRowStyles:{fillColor:[249,248,245]},
+      footStyles:{fillColor:PC.light,textColor:PC.ink,fontStyle:"bold"}},opt||{})); y=doc.lastAutoTable.finalY+4; };
+  const money=(v,sign)=>({content:pm(v,sign),styles:{halign:"right",textColor:v<-0.004?PC.red:PC.ink}});
+
+  // en-tête
+  col(PC.forest,"setFillColor"); doc.rect(0,0,W,32,"F"); col(PC.orange,"setFillColor"); doc.rect(0,32,W,1.2,"F");
+  col(PC.white); doc.setFont("helvetica","bold"); doc.setFontSize(19); doc.text("Budget du foyer",m,15);
+  doc.setFont("helvetica","normal"); doc.setFontSize(11); doc.text(pt(R.title.charAt(0).toUpperCase()+R.title.slice(1)+" · état au "+R.when),m,23);
+  doc.setFontSize(8); doc.text(pt(S.accounts.map(a=>a.name).join(" · ")),W-m,23,{align:"right"});
+  y=40;
+
+  // chiffres clés
+  const kp=[["Solde des comptes",R.totNow,R.isNow?"aujourd'hui":"fin du mois"],["Rentrées du mois",R.inc,"salaire et autres"],["Dépensé",R.spent,R.isNow?"à ce jour":"sur le mois"],["Fin de mois prévue",R.totEnd,"si le prévu se réalise"]];
+  const tw=(cw-9)/4;
+  kp.forEach((k,i)=>{ const x=m+i*(tw+3); col(PC.light,"setFillColor"); doc.roundedRect(x,y,tw,23,2.5,2.5,"F");
+    col(PC.grey); doc.setFontSize(7.4); doc.setFont("helvetica","bold"); doc.text(pt(k[0].toUpperCase()),x+3.5,y+6);
+    const v=k[1], c=i===1?PC.teal:i===2?PC.red:(v<0?PC.red:i===3?[199,122,12]:PC.ink);
+    col(c); doc.setFontSize(14.5); doc.text(pm0(v),x+3.5,y+14.5); col(PC.grey); doc.setFont("helvetica","normal"); doc.setFontSize(7.2); doc.text(pt(k[2]),x+3.5,y+19.5); });
+  y+=27;
+  // jauge : part des rentrées dépensée
+  const pc=R.inc>0?R.spent/R.inc:0;
+  col(PC.ink2); doc.setFontSize(8.6); doc.text(pt(`${Math.round(pc*100)} % des rentrées dépensés`+(R.chargesLeft>0.5?` · encore ${pm0(R.chargesLeft)} de prélèvements à venir`:"")+` · épargne ${pm0(R.savTot)}`),m,y+3);
+  y+=5; col(PC.light,"setFillColor"); doc.roundedRect(m,y,cw,3.2,1.6,1.6,"F"); col(pc>1?PC.red:PC.orange,"setFillColor"); if(pc>0) doc.roundedRect(m,y,Math.max(3.2,cw*Math.min(1,pc)),3.2,1.6,1.6,"F"); y+=7;
+  if(R.pending){ col(PC.grey); doc.setFontSize(7.6); doc.text(pt(`${R.pending.n} opération(s) pour ${pm(R.pending.v)} pas encore visibles à la banque, déjà comptées ici.`),m,y); y+=4; }
+
+  // comptes
+  title("Les comptes");
+  table(["Compte","Début du mois",R.isNow?"Aujourd'hui":"Fin du mois","Fin de mois prévue","Découvert autorisé"],
+    R.accs.map(a=>[a.name,money(a.start),money(a.now),money(a.end),{content:pm(a.over),styles:{halign:"right",textColor:PC.grey}}]),
+    {foot:[["Total",money(R.accs.reduce((t,a)=>t+a.start,0)),money(R.totNow),money(R.totEnd),""]],columnStyles:{0:{fontStyle:"bold"}}});
+
+  // catégories
+  title("Dépenses par catégorie",`${pm(R.catTot)} hors prélèvements`);
+  if(!R.cats.length){ col(PC.grey); doc.setFontSize(9); doc.text("Pas encore de dépense ce mois.",m,y+2); y+=8; }
+  const cmax=Math.max(1,...R.cats.map(c=>Math.max(c.v,c.b))), bx=m+40, bwMax=cw-40-46;
+  R.cats.forEach(c=>{ need(8); const ov=c.b&&c.v>c.b;
+    col(PC.ink); doc.setFont("helvetica","normal"); doc.setFontSize(8.8); doc.text(pt(c.name),m,y+3.6);
+    col(PC.light,"setFillColor"); doc.roundedRect(bx,y+.6,bwMax,4,1,1,"F");
+    col(ov?PC.red:PC.orange,"setFillColor"); doc.roundedRect(bx,y+.6,Math.max(1.5,bwMax*c.v/cmax),4,1,1,"F");
+    if(c.b){ col(PC.ink,"setDrawColor"); doc.setLineWidth(.5); const bxx=bx+bwMax*c.b/cmax; doc.line(bxx,y-.2,bxx,y+5.4); }
+    doc.setFont("helvetica","bold"); col(ov?PC.red:PC.ink); doc.text(pm(c.v),W-m-22,y+3.6,{align:"right"});
+    doc.setFont("helvetica","normal"); doc.setFontSize(7.4); col(PC.grey);
+    const extra=c.b?`/ ${pm0(c.b)}`:`${c.n} dép.`; doc.text(pt(extra),W-m-20.5,y+3.6);
+    if(c.p!=null){ const d=c.v-c.p; if(Math.abs(d)>=1){ col(d>0?PC.red:PC.teal); doc.text(pt((d>0?"+":"-")+pm0(Math.abs(d))),W-m,y+3.6,{align:"right"}); } }
+    y+=7; });
+  if(R.cats.length){ col(PC.grey); doc.setFontSize(7.2); doc.text(pt("Barre rouge : plafond dépassé. Trait noir : plafond. À droite : écart avec le mois précédent."+(R.courses.b?` Enveloppe courses : ${pm0(R.courses.s)} sur ${pm0(R.courses.b)}.`:"")),m,y+1); y+=5; }
+
+  // prélèvements
+  title("Prélèvements du mois",`${pm(R.fixed)} au total`);
+  table(["Jour","Prélèvement","Compte","Montant","État"],R.charges.map(c=>[String(c.day||"?"),c.label,c.acc,money(-c.v),{content:c.paid?"passé":"à venir",styles:{textColor:c.paid?PC.grey:[199,122,12],fontStyle:c.paid?"normal":"bold"}}]),
+    {columnStyles:{0:{cellWidth:12}},foot:[["","Total","",money(-R.fixed),R.chargesLeft>0.5?pm0(R.chargesLeft)+" à venir":""]]});
+
+  // six derniers mois
+  if(R.hist.length>1){
+    title("Les derniers mois","rentrées, sorties et résultat");
+    need(52); const ch=34, x0=m+8, gw=(cw-8)/R.hist.length, mx=Math.max(1,...R.hist.map(h=>Math.max(h.inc,h.fixed+h.spent)));
+    col(PC.line,"setDrawColor"); doc.setLineWidth(.2); doc.line(x0,y+ch,W-m,y+ch);
+    R.hist.forEach((h,i)=>{ const cx=x0+i*gw+gw/2, bw=Math.min(9,gw/3.2), hi=ch*h.inc/mx, ho=ch*(h.fixed+h.spent)/mx;
+      col(PC.teal,"setFillColor"); doc.rect(cx-bw-.6,y+ch-hi,bw,hi,"F"); col(PC.orange,"setFillColor"); doc.rect(cx+.6,y+ch-ho,bw,ho,"F");
+      col(PC.ink2); doc.setFontSize(7.6); doc.text(pt(h.label),cx,y+ch+4,{align:"center"});
+      doc.setFont("helvetica","bold"); col(h.res<0?PC.red:PC.teal); doc.text(pt((h.res>=0?"+":"")+pm0(h.res)),cx,y+ch+8.2,{align:"center"}); doc.setFont("helvetica","normal"); });
+    y+=ch+11; col(PC.teal,"setFillColor"); doc.rect(m,y,3,3,"F"); col(PC.ink2); doc.setFontSize(7.6); doc.text("Rentrées",m+4.5,y+2.6);
+    col(PC.orange,"setFillColor"); doc.rect(m+22,y,3,3,"F"); doc.text("Prélèvements + dépenses",m+26.5,y+2.6); doc.text(pt("Chiffre sous chaque mois : résultat (rentrées moins sorties)."),W-m,y+2.6,{align:"right"}); y+=7;
+  }
+
+  // épargne
+  title("Épargne",`${pm(R.savTot)} au total`);
+  table(["Livret","Solde"],R.savings.map(s=>[s.name,money(s.v)]).concat(R.moves.map(mv=>[{content:`${mv.day||""} ${MSHORT[ymParts(R.ym).m-1]} · ${mv.label||(mv.kind==="in"?"Mise de côté":"Retrait")}`,styles:{textColor:PC.ink2}},money((mv.kind==="in"?1:-1)*(+mv.amount||0),true)])),
+    {columnStyles:{1:{cellWidth:40}}});
+
+  // détail
+  title("Détail des opérations",`${R.ops.length} lignes`);
+  table(["Date","Libellé","Catégorie","Compte","Montant"],R.ops.map(o=>[`${String(o.day).padStart(2,"0")}/${String(ymParts(R.ym).m).padStart(2,"0")}`,o.label+(o.by?" ("+o.by+")":""),o.cat,o.acc,
+      o.tr?{content:pm(o.v),styles:{halign:"right",textColor:PC.grey}}:money(o.v,true)]),{columnStyles:{0:{cellWidth:14},2:{cellWidth:30},3:{cellWidth:38},4:{cellWidth:24}}});
+
+  // pied de page
+  const np=doc.getNumberOfPages();
+  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Budget 2 · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
+  return doc.output("blob");
+}
+
+/* ---------- Excel ---------- */
+async function buildXlsx(R){
+  const wb=new ExcelJS.Workbook(); wb.creator="Budget 2"; wb.created=new Date();
+  const EUR='#,##0.00 "€";[Red]-#,##0.00 "€"', FOREST="FF2E5237", LIGHT="FFF3F2EE", ORANGE="FFF39A1E";
+  const {y:yy,m:mm}=ymParts(R.ym), dt=d=>new Date(Date.UTC(yy,mm-1,Math.max(1,d||1)));
+  const head=(ws,row,cells)=>{ const r=ws.getRow(row); cells.forEach((c,i)=>{ const x=r.getCell(i+1); x.value=c; x.font={bold:true,color:{argb:"FFFFFFFF"}}; x.fill={type:"pattern",pattern:"solid",fgColor:{argb:FOREST}}; x.alignment={vertical:"middle",horizontal:i?"center":"left"}; }); r.height=20; };
+  const titleRow=(ws,t,sub,span)=>{ ws.mergeCells(1,1,1,span); const c=ws.getCell(1,1); c.value=t; c.font={bold:true,size:16,color:{argb:FOREST}};
+    ws.mergeCells(2,1,2,span); const s=ws.getCell(2,1); s.value=sub; s.font={italic:true,size:10,color:{argb:"FF8A938C"}}; ws.getRow(1).height=26; };
+  const money=(cell,v)=>{ cell.value=v; cell.numFmt=EUR; };
+  const total=(ws,row,label,col,from,to,res,span)=>{ const r=ws.getRow(row); r.getCell(1).value=label; for(let i=1;i<=span;i++){ const c=r.getCell(i); c.font={bold:true}; c.fill={type:"pattern",pattern:"solid",fgColor:{argb:LIGHT}}; c.border={top:{style:"thin",color:{argb:FOREST}}}; }
+    const L=String.fromCharCode(64+col); r.getCell(col).value={formula:`SUM(${L}${from}:${L}${to})`,result:res}; r.getCell(col).numFmt=EUR; };
+  const zebra=(ws,from,to,span)=>{ for(let r=from;r<=to;r++) if((r-from)%2) for(let i=1;i<=span;i++) ws.getRow(r).getCell(i).fill={type:"pattern",pattern:"solid",fgColor:{argb:"FFF9F8F5"}}; };
+  const bar=(v,mx)=>"█".repeat(Math.max(v>0?1:0,Math.round(16*v/Math.max(1,mx))));
+
+  // 1. Synthèse
+  const ws=wb.addWorksheet("Synthèse",{views:[{showGridLines:false}],properties:{tabColor:{argb:FOREST}}});
+  ws.columns=[{width:26},{width:16},{width:16},{width:18},{width:20}];
+  titleRow(ws,"Budget du foyer · "+R.title,"État au "+R.when,5);
+  head(ws,4,["Chiffres clés","Montant"]);
+  const kv=[["Solde des comptes "+(R.isNow?"aujourd'hui":"en fin de mois"),R.totNow],["Rentrées du mois",R.inc],["Dépensé "+(R.isNow?"à ce jour":"sur le mois"),R.spent],["Prélèvements encore à venir",R.chargesLeft],["Fin de mois prévue",R.totEnd],["Épargne totale",R.savTot]];
+  kv.forEach((k,i)=>{ const r=ws.getRow(5+i); r.getCell(1).value=k[0]; money(r.getCell(2),r2(k[1])); r.getCell(2).font={bold:true}; });
+  ws.getRow(11).getCell(1).value="Part des rentrées dépensée"; ws.getRow(11).getCell(2).value={formula:"IF(B6>0,B7/B6,0)",result:R.inc>0?R.spent/R.inc:0}; ws.getRow(11).getCell(2).numFmt="0 %"; ws.getRow(11).getCell(2).font={bold:true,color:{argb:ORANGE}};
+  let r0=13; head(ws,r0,["Compte","Début du mois",R.isNow?"Aujourd'hui":"Fin du mois","Fin de mois prévue","Découvert autorisé"]);
+  R.accs.forEach((a,i)=>{ const r=ws.getRow(r0+1+i); r.getCell(1).value=a.name; r.getCell(1).font={bold:true}; money(r.getCell(2),r2(a.start)); money(r.getCell(3),r2(a.now)); money(r.getCell(4),r2(a.end)); money(r.getCell(5),a.over); r.getCell(5).font={color:{argb:"FF8A938C"}}; });
+  const ra=r0+R.accs.length+1; total(ws,ra,"Total",2,r0+1,ra-1,r2(R.accs.reduce((t,a)=>t+a.start,0)),5);
+  ["C","D"].forEach((L,k)=>{ const c=ws.getCell(L+ra); c.value={formula:`SUM(${L}${r0+1}:${L}${ra-1})`,result:r2(k?R.totEnd:R.totNow)}; c.numFmt=EUR; });
+  r0=ra+2; head(ws,r0,["Catégorie","Dépensé","Plafond","Mois précédent","Répartition"]);
+  const cmx=Math.max(1,...R.cats.map(c=>c.v));
+  R.cats.forEach((c,i)=>{ const r=ws.getRow(r0+1+i); r.getCell(1).value=c.name; money(r.getCell(2),c.v); if(c.b) money(r.getCell(3),c.b); else { r.getCell(3).value="—"; r.getCell(3).alignment={horizontal:"center"}; }
+    if(c.p!=null) money(r.getCell(4),c.p); r.getCell(5).value=bar(c.v,cmx); r.getCell(5).font={color:{argb:c.b&&c.v>c.b?"FFB7402C":ORANGE}};
+    if(c.b&&c.v>c.b) r.getCell(2).font={bold:true,color:{argb:"FFB7402C"}}; });
+  zebra(ws,r0+1,r0+R.cats.length,4);
+  if(R.cats.length) total(ws,r0+R.cats.length+1,"Total des dépenses",2,r0+1,r0+R.cats.length,r2(R.catTot),5);
+  ws.getCell("A"+(r0+R.cats.length+3)).value="Montants nets des remboursements, hors prélèvements et virements entre comptes."; ws.getCell("A"+(r0+R.cats.length+3)).font={italic:true,size:9,color:{argb:"FF8A938C"}};
+
+  // 2. Opérations
+  const wo=wb.addWorksheet("Opérations",{views:[{state:"frozen",ySplit:3,showGridLines:false}]});
+  wo.columns=[{width:12},{width:30},{width:18},{width:26},{width:14},{width:10},{width:12}];
+  titleRow(wo,"Opérations · "+R.title,R.ops.length+" lignes · montants négatifs = sorties",7);
+  head(wo,3,["Date","Libellé","Catégorie","Compte","Montant","Pointé","Saisi par"]);
+  R.ops.forEach((o,i)=>{ const r=wo.getRow(4+i); r.getCell(1).value=dt(o.day); r.getCell(1).numFmt="dd/mm/yyyy"; r.getCell(2).value=o.label; r.getCell(3).value=o.cat; r.getCell(4).value=o.acc;
+    money(r.getCell(5),r2(o.v)); if(o.tr) r.getCell(5).font={color:{argb:"FF8A938C"}}; r.getCell(6).value=o.seen?"oui":"non"; r.getCell(6).alignment={horizontal:"center"}; r.getCell(7).value=o.by||""; });
+  zebra(wo,4,3+R.ops.length,7);
+  if(R.ops.length) wo.autoFilter={from:{row:3,column:1},to:{row:3+R.ops.length,column:7}};
+
+  // 3. Prélèvements
+  const wp=wb.addWorksheet("Prélèvements",{views:[{state:"frozen",ySplit:3,showGridLines:false}]});
+  wp.columns=[{width:8},{width:30},{width:18},{width:14},{width:12}];
+  titleRow(wp,"Prélèvements · "+R.title,"Passés et à venir",5);
+  head(wp,3,["Jour","Prélèvement","Compte","Montant","État"]);
+  R.charges.forEach((c,i)=>{ const r=wp.getRow(4+i); r.getCell(1).value=c.day||null; r.getCell(1).alignment={horizontal:"center"}; r.getCell(2).value=c.label; r.getCell(3).value=c.acc; money(r.getCell(4),c.v);
+    r.getCell(5).value=c.paid?"passé":"à venir"; r.getCell(5).font={color:{argb:c.paid?"FF8A938C":"FFC77A0C"},bold:!c.paid}; });
+  zebra(wp,4,3+R.charges.length,5);
+  total(wp,4+R.charges.length,"Total",4,4,3+R.charges.length,r2(R.fixed),5);
+
+  // 4. Historique
+  const wh=wb.addWorksheet("Historique",{views:[{showGridLines:false}]});
+  wh.columns=[{width:12},{width:15},{width:15},{width:15},{width:15},{width:15},{width:20}];
+  titleRow(wh,"Les derniers mois","Résultat = rentrées − prélèvements − dépenses",7);
+  head(wh,3,["Mois","Rentrées","Prélèvements","Dépenses","Résultat","Épargne versée","Tendance"]);
+  const hmx=Math.max(1,...R.hist.map(h=>Math.abs(h.res)));
+  R.hist.forEach((h,i)=>{ const n=4+i, r=wh.getRow(n); r.getCell(1).value=h.label; money(r.getCell(2),r2(h.inc)); money(r.getCell(3),r2(h.fixed)); money(r.getCell(4),r2(h.spent));
+    r.getCell(5).value={formula:`B${n}-C${n}-D${n}`,result:r2(h.res)}; r.getCell(5).numFmt=EUR; r.getCell(5).font={bold:true};
+    money(r.getCell(6),r2(h.saved)); r.getCell(7).value=bar(Math.abs(h.res),hmx); r.getCell(7).font={color:{argb:h.res<0?"FFB7402C":"FF2F6B45"}}; });
+  zebra(wh,4,3+R.hist.length,6);
+
+  // 5. Épargne
+  const we=wb.addWorksheet("Épargne",{views:[{showGridLines:false}]});
+  we.columns=[{width:30},{width:16},{width:24}];
+  titleRow(we,"Épargne","Soldes des livrets et mouvements du mois",3);
+  head(we,3,["Livret","Solde"]);
+  R.savings.forEach((s,i)=>{ const r=we.getRow(4+i); r.getCell(1).value=s.name; money(r.getCell(2),r2(s.v)); });
+  total(we,4+R.savings.length,"Total",2,4,3+R.savings.length,r2(R.savTot),2);
+  const rm=6+R.savings.length; head(we,rm,["Mouvement du mois","Montant","Compte"]);
+  R.moves.forEach((mv,i)=>{ const r=we.getRow(rm+1+i); r.getCell(1).value=(mv.label||(mv.kind==="in"?"Mise de côté":"Retrait"))+" ("+(mv.day||"")+"/"+String(mm).padStart(2,"0")+")"; money(r.getCell(2),(mv.kind==="in"?1:-1)*(+mv.amount||0)); r.getCell(3).value=accName(mv.account); });
+  if(!R.moves.length){ we.getCell("A"+(rm+1)).value="Aucun mouvement ce mois."; we.getCell("A"+(rm+1)).font={italic:true,color:{argb:"FF8A938C"}}; }
+
+  const buf=await wb.xlsx.writeBuffer();
+  return new Blob([buf],{type:"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"});
+}
 
 (async function init(){
   const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); fixOct2Once(); }
