@@ -262,6 +262,9 @@ header{background:rgba(243,242,238,.92);backdrop-filter:saturate(160%) blur(16px
 .hbar .hello .s2{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .quote{margin-top:8px;font-size:13px;line-height:1.35;color:var(--ink-2);font-style:italic;text-align:center;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
 .quote:empty{display:none}
+.conseil{margin-top:6px;font-size:12.5px;line-height:1.4;color:var(--ink-2);text-align:center}
+.conseil:empty{display:none}
+.conseil span{display:inline-block;font-size:10.5px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:var(--forest);background:#DCE6DD;border-radius:6px;padding:1px 6px;margin-right:6px;vertical-align:1px}
 .quote b{font-style:normal;font-weight:550;color:var(--ink-3);font-size:11.5px;margin-left:4px;white-space:nowrap}
 .hbar .rb{width:46px;height:46px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center;flex:none;color:var(--ink-2)}
 .hbar .rb.g{background:#DCE6DD;color:var(--forest)}
@@ -370,6 +373,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
     <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=4" alt=""><span id="syncDot" class="sdot off"></span></div>
   </div>
   <div class="quote" id="quote"></div>
+  <div class="conseil" id="conseil"></div>
 </header>
 <main id="view"></main>
 <button class="fab" id="fab" aria-label="Ajouter">+</button>
@@ -389,7 +393,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v23 · 23 octobre 2026";
+const APP_VERSION="v24 · 23 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -683,6 +687,7 @@ function renderInner(){
   const he=document.getElementById("hello"); he.textContent=(hr>=18||hr<5?"Bonsoir":"Bonjour")+(nm?" "+nm:" 👋");
   he.style.fontSize=he.textContent.length>22?"15px":he.textContent.length>16?"17px":"";
   try{ const q=quoteNow(); document.getElementById("quote").innerHTML=`« ${esc(q[0])} »<b>${esc(q[1])}</b>`; }catch(e){}
+  try{ const tp=tab==="today"?tipNow():""; document.getElementById("conseil").innerHTML=tp?`<span>Conseil</span>${esc(tp)}`:""; }catch(e){}
   document.getElementById("fab").style.display=(tab==="reglages"||tab==="today")?"none":"grid";
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
   document.getElementById("gear").classList.toggle("on",tab==="reglages");
@@ -2309,7 +2314,7 @@ function quoteState(){ try{ return JSON.parse(localStorage.getItem(QUOTE_KEY)||"
 function quoteSave(q){ try{ localStorage.setItem(QUOTE_KEY,JSON.stringify(q)); }catch(e){} }
 let _quoteMem=null;
 function quotePick(mood,prev){ const n=QUOTES[mood].length; let i=Math.floor(Math.random()*n); if(n>1&&i===prev) i=(i+1)%n;
-  return {mood,i,n:0,th:2+Math.floor(Math.random()*2)}; }
+  return {mood,i,r:Math.random(),n:0,th:2+Math.floor(Math.random()*2)}; }
 function quoteOpened(){ // appelée à chaque ouverture
   const mood=accountsMood(); let q=quoteState()||_quoteMem;
   if(!q||q.mood!==mood||!QUOTES[mood][q.i]) q=quotePick(mood,-1);
@@ -2321,6 +2326,30 @@ function quoteNow(){
   if(!q||q.mood!==mood||!QUOTES[mood][q.i]){ q=quotePick(mood,q&&q.mood===mood?q.i:-1); _quoteMem=q; quoteSave(q); }
   return QUOTES[mood][q.i];
 }
+// conseils concrets, calculés sur les vrais chiffres du mois en cours
+function tipsFor(mood){
+  const ym=ymNow(); if(!S.months[ym]) return ["Commence le mois en notant les soldes du 1er : l'appli pourra alors te dire où tu en es chaque jour."];
+  const M=month(ym), C=calc(ym), dim=daysIn(ym), t=Math.min(new Date().getDate(),dim), left=dim-t+1, weeks=Math.max(1,Math.round(left/7));
+  const T={ok:[],watch:[],tough:[]}, all=(x)=>{T.ok.push(x);T.watch.push(x);T.tough.push(x);};
+  if(C.courses>0&&C.coursesLeft>0.5) all(`Il reste ${eur0(C.coursesLeft)} pour les courses, ${weeks>1?`soit environ ${eur0(C.coursesLeft/weeks)} par semaine jusqu'à la fin du mois.`:"pour finir le mois tranquillement."}`);
+  S.categories.forEach(c=>{ const b=+c.budget||0, v=C.byCat[c.id]||0; if(!b||c.pocket==='courses'||c.pocket==='repas') return;
+    if(v>b) T.tough.push(`${c.name} : ${eur0(v)} pour un plafond de ${eur0(b)}. On met cette catégorie en pause jusqu'à la fin du mois, c'est le geste le plus efficace.`),T.watch.push(`${c.name} a dépassé son plafond (${eur0(v)} sur ${eur0(b)}). Le mois prochain, ajuste le plafond ou lève le pied dès le 20.`);
+    else if(v>=0.8*b) T.watch.push(`${c.name} : ${eur0(v)} déjà utilisés sur ${eur0(b)}. Il reste ${eur0(b-v)} pour ${left} jour${left>1?"s":""}, ça se tient si on y va doucement.`);
+    else if(t>=15&&v<0.5*b) T.ok.push(`${c.name} : seulement ${eur0(v)} sur ${eur0(b)} à mi-mois. Bien tenu, ce qui reste pourra filer à l'épargne.`); });
+  if(C.savedNet>0.5) T.ok.push(`Déjà ${eur0(C.savedNet)} mis de côté ce mois-ci. Chaque mois comme celui-là, c'est un coussin qui grossit.`);
+  if(C.reste>20){ const z=Math.max(10,Math.floor(C.reste/2/10)*10); T.ok.push(`Il reste ${eur0(C.reste)} de disponible : mettre ${eur0(z)} de côté maintenant, avant que ça parte ailleurs, c'est autant de gagné.`); }
+  if(C.nPending>0&&C.pendingTot>0.5){ const x=`${C.nPending} dépense${C.nPending>1?"s":""} pas encore débitée${C.nPending>1?"s":""} (${eur0(C.pendingTot)}) : garde-${C.nPending>1?"les":"la"} en tête, la banque ne les montre pas encore.`; T.watch.push(x); T.tough.push(x); }
+  M.transfers.filter(tr=>!tr.done&&(+tr.amount||0)>0).slice(0,2).forEach(tr=>{ const x=`Le virement de ${eur0(+tr.amount)} de ${accName(tr.from)} vers ${accName(tr.to)} n'est pas encore fait : c'est la première chose à régler.`; T.watch.push(x); T.tough.push(x); });
+  const due=Object.values(C.A).flatMap(a=>a.chargesDue).filter(c=>(+c.amount||0)>0&&(!c.day||c.day>=t)).sort((a,b)=>(a.day||99)-(b.day||99))[0];
+  if(due){ const x=`Prochain prélèvement : ${due.label}, ${eur0(+due.amount)}${due.day?" le "+due.day:""} sur ${accName(due.account)}. Vérifie que le compte est prêt.`; T.watch.push(x); T.tough.push(x); }
+  if(C.toRefund>0.5) all(`${eur0(C.toRefund)} à te faire rembourser (${C.nToRefund} dépense${C.nToRefund>1?"s":""}) : une relance aujourd'hui, c'est de l'argent qui revient.`);
+  T.ok.push("Note chaque dépense le jour même : 30 secondes qui évitent les mauvaises surprises en fin de mois.","Un projet anticipé de 20 € par mois ne se sent pas, et il évite la grosse dépense qui fait mal plus tard.");
+  T.watch.push("Avant un achat non prévu, attends 48 h. Si l'envie est encore là, il aura sa place.","Une semaine « sans extras » (restos, livraisons, petits achats) suffit souvent à remettre le mois d'aplomb.");
+  T.tough.push("Pour quelques jours, on se limite aux courses et à l'essentiel : chaque dépense évitée réduit les frais.","Fais le tour des abonnements : en suspendre un seul, c'est un vrai gain dès le mois prochain.","C'est un passage, pas une fatalité : le prochain salaire remet les compteurs à zéro, on tient jusque-là.");
+  return T[mood];
+}
+function tipNow(){ const mood=accountsMood(), L=tipsFor(mood); if(!L.length) return "";
+  const q=quoteState()||_quoteMem||{r:Math.random()}; return L[Math.floor((q.r||0)*L.length)%L.length]; }
 let _hiddenAt=0;
 document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden") _hiddenAt=Date.now();
