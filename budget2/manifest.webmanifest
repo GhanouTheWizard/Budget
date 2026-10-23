@@ -1,6 +1,6 @@
 {
-  "name": "Budget 2",
-  "short_name": "Budget 2",
+  "name": "Budget",
+  "short_name": "Budget",
   "description": "Le mois comme un rituel : départ, répartition sur les comptes, enveloppes, épargne.",
   "start_url": "./index.html",
   "scope": "./",

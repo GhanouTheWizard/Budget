@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-<title>Budget 2</title>
+<title>Budget</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F3F2EE">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Budget 2">
+<meta name="apple-mobile-web-app-title" content="Budget">
 <link rel="apple-touch-icon" href="icon-180.png?v=4">
 <style>
 :root{
@@ -260,6 +260,9 @@ header{background:rgba(243,242,238,.92);backdrop-filter:saturate(160%) blur(16px
 .hbar .hello{flex:1;min-width:0}
 .hbar .hello .s1{font-size:12.5px;color:var(--ink-3);font-weight:500}
 .hbar .hello .s2{font-size:21px;font-weight:700;letter-spacing:-.02em;line-height:1.15;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.quote{margin-top:8px;font-size:13px;line-height:1.35;color:var(--ink-2);font-style:italic;text-align:center;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+.quote:empty{display:none}
+.quote b{font-style:normal;font-weight:550;color:var(--ink-3);font-size:11.5px;margin-left:4px;white-space:nowrap}
 .hbar .rb{width:46px;height:46px;border-radius:50%;background:var(--surface);box-shadow:var(--shadow);display:grid;place-items:center;flex:none;color:var(--ink-2)}
 .hbar .rb.g{background:#DCE6DD;color:var(--forest)}
 .hbar .rb.on{background:var(--forest);color:#fff}
@@ -363,9 +366,10 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
   <div class="hbar">
     <button class="rb" id="gear" aria-label="Réglages"></button>
     <button class="rb g" id="savBtn" aria-label="Épargne"></button>
-    <div class="hello" style="text-align:right"><div class="s1">Budget 2</div><div class="s2" id="hello">Bonjour</div></div>
+    <div class="hello" style="text-align:right"><div class="s1">Budget</div><div class="s2" id="hello">Bonjour</div></div>
     <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=4" alt=""><span id="syncDot" class="sdot off"></span></div>
   </div>
+  <div class="quote" id="quote"></div>
 </header>
 <main id="view"></main>
 <button class="fab" id="fab" aria-label="Ajouter">+</button>
@@ -385,7 +389,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v20 · 21 octobre 2026";
+const APP_VERSION="v21 · 23 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -675,7 +679,10 @@ function showCrash(e){
 window.addEventListener("error",ev=>{ if(ev&&ev.message&&!/ServiceWorker/i.test(ev.message)) toast("Erreur : "+esc(ev.message)); });
 function renderInner(){
   const hr=new Date().getHours();
-  document.getElementById("hello").textContent=(hr>=18||hr<5?"Bonsoir":"Bonjour")+(S.defaults.hello?" "+S.defaults.hello:" 👋");
+  const nm=deviceName();
+  const he=document.getElementById("hello"); he.textContent=(hr>=18||hr<5?"Bonsoir":"Bonjour")+(nm?" "+nm:" 👋");
+  he.style.fontSize=he.textContent.length>22?"15px":he.textContent.length>16?"17px":"";
+  try{ const q=quoteNow(); document.getElementById("quote").innerHTML=`« ${esc(q[0])} »<b>${esc(q[1])}</b>`; }catch(e){}
   document.getElementById("fab").style.display=(tab==="reglages"||tab==="today")?"none":"grid";
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
   document.getElementById("gear").classList.toggle("on",tab==="reglages");
@@ -1618,7 +1625,7 @@ function vReglages(){
     <div class="hint" style="margin:6px 0 12px">Efface tout, sans retour possible.</div>
     <button class="btn sm danger" onclick="wipe()">Tout effacer</button>
   </div>
-  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget 2 · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
+  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
 }
 
 /* ================= feuille modale ================= */
@@ -2262,14 +2269,44 @@ function syncCard(){
   if(!Sync.on) return `<div class="card">
     <span class="eyebrow">Synchronisation à deux</span>
     <div class="hint" style="margin:6px 0 12px">Partage le budget avec un second téléphone : chaque saisie apparaît chez l'autre en quelques secondes. Les données sont chiffrées sur le téléphone avec votre mot de passe commun, le serveur ne voit rien.</div>
+    <div class="calc" style="margin-bottom:12px"><div class="l tap" onclick="editDeviceName()"><span class="n">Prénom sur cet appareil<small>affiché dans « Bonjour »</small></span><span class="a" style="font-weight:520">${esc(deviceName()||"à saisir")}</span></div></div>
     <button class="btn sm" onclick="editSync()">Activer sur ce téléphone</button></div>`;
   return `<div class="card">
     <div class="sec"><span class="eyebrow">Synchronisation à deux</span><button class="act" onclick="Sync.push()">Synchroniser</button></div>
     <div class="calc">
       <div class="l"><span class="n">État</span><span class="a" style="font-weight:520;font-family:var(--sans);text-align:right" id="syncState">${syncLabel()}</span></div>
-      <div class="l"><span class="n">Ce téléphone</span><span class="a" style="font-weight:520">${esc(Sync.cfg.name||"sans nom")}</span></div>
+      <div class="l tap" onclick="editDeviceName()"><span class="n">Prénom sur cet appareil<small>affiché dans « Bonjour »</small></span><span class="a" style="font-weight:520">${esc(Sync.cfg.name||"à saisir")}</span></div>
     </div>
     <button class="btn sm ghost" style="margin-top:10px" onclick="leaveSync()">Désactiver sur ce téléphone</button></div>`;
+}
+/* ================= prénom de l'appareil et citation ================= */
+const NAME_KEY="budget2.prenom";
+function deviceName(){ if(Sync.cfg&&Sync.cfg.name) return Sync.cfg.name; try{ return localStorage.getItem(NAME_KEY)||S.defaults.hello||""; }catch(e){ return S.defaults.hello||""; } }
+function editDeviceName(){
+  openSheet("Prénom sur cet appareil","Chaque appareil garde son propre prénom : il s'affiche dans le « Bonjour » en haut et marque les dépenses saisies ici.",
+    [{k:"name",label:"Prénom",type:"text",ph:"Abdelghani"}],{name:deviceName()},
+    d=>{ const n=(d.name||"").trim().slice(0,30);
+      try{ if(n) localStorage.setItem(NAME_KEY,n); else localStorage.removeItem(NAME_KEY); }catch(e){}
+      if(Sync.cfg){ Sync.cfg.name=n; Sync.saveCfg(); }
+      render(); });
+}
+const QUOTES={
+  ok:[["Petit à petit, l'oiseau fait son nid.","Proverbe"],["Les petits ruisseaux font les grandes rivières.","Proverbe"],["Rien ne sert de courir ; il faut partir à point.","La Fontaine"],["Il faut semer pour récolter.","Proverbe"],["Qui va doucement va sûrement.","Proverbe"],["Un sou épargné est un sou gagné.","Proverbe"],["Le travail éloigne de nous trois grands maux : l'ennui, le vice et le besoin.","Voltaire"],["Bien faire et laisser dire.","Proverbe"]],
+  watch:[["Qui veut voyager loin ménage sa monture.","Racine"],["Prudence est mère de sûreté.","Proverbe"],["Mieux vaut prévenir que guérir.","Proverbe"],["Patience et longueur de temps font plus que force ni que rage.","La Fontaine"],["Un tiens vaut mieux que deux tu l'auras.","La Fontaine"],["Il faut cultiver notre jardin.","Voltaire"]],
+  tough:[["La patience est la clé de la délivrance.","Proverbe arabe"],["Après la pluie, le beau temps.","Proverbe"],["Aide-toi, le ciel t'aidera.","La Fontaine"],["À cœur vaillant rien d'impossible.","Jacques Cœur"],["Tout vient à point à qui sait attendre.","Proverbe"],["Ce n'est pas parce que les choses sont difficiles que nous n'osons pas, c'est parce que nous n'osons pas qu'elles sont difficiles.","Sénèque"],["On n'est jamais si heureux ni si malheureux qu'on s'imagine.","La Rochefoucauld"]]};
+// état des comptes : alerte grave → tough, point à surveiller → watch, sinon ok
+function accountsMood(){
+  const ym=ymNow(); if(!S.months[ym]) return "ok";
+  const L=alerts(ym).filter(a=>a.id!=="start");
+  if(L.some(a=>a.lvl==="crit"&&!a.env)) return "tough";
+  if(L.some(a=>a.lvl==="warn"||a.lvl==="crit")) return "watch";
+  return "ok";
+}
+// une nouvelle citation toutes les 2 semaines (période fixe de 14 jours), dans la liste qui correspond à l'état des comptes
+function quoteNow(){
+  const d=new Date(), day=Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/864e5);
+  const period=Math.floor((day-4)/14), list=QUOTES[accountsMood()];
+  return list[((period*5)%list.length+list.length)%list.length];
 }
 function editSync(pre){
   const hasData=Object.values(S.months).some(M=>M.ops.length>0)||S.recurring.length>0;
@@ -2279,7 +2316,7 @@ function editSync(pre){
      {k:"name",label:"Prénom de la personne qui utilise ce téléphone",type:"text",ph:"Abdelghani"},
      {k:"p1",label:"Mot de passe commun (10 caractères minimum)",type:"text",ph:""},
      {k:"p2",label:"Le même, une seconde fois",type:"text",ph:""}],
-    {mode:pre||(hasData?"create":"join"),name:"",p1:"",p2:""},
+    {mode:pre||(hasData?"create":"join"),name:deviceName(),p1:"",p2:""},
     d=>{ const p=(d.p1||"").trim();
       if(p.length<10){ toast("10 caractères minimum, par exemple une petite phrase"); return false; }
       if(p!==(d.p2||"").trim()){ toast("Les deux mots de passe ne sont pas identiques"); return false; }
@@ -2448,13 +2485,13 @@ function buildPdf(R){
 
   // pied de page
   const np=doc.getNumberOfPages();
-  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Budget 2 · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
+  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Budget · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
   return doc.output("blob");
 }
 
 /* ---------- Excel ---------- */
 async function buildXlsx(R){
-  const wb=new ExcelJS.Workbook(); wb.creator="Budget 2"; wb.created=new Date();
+  const wb=new ExcelJS.Workbook(); wb.creator="Budget"; wb.created=new Date();
   const EUR='#,##0.00 "€";[Red]-#,##0.00 "€"', FOREST="FF2E5237", LIGHT="FFF3F2EE", ORANGE="FFF39A1E";
   const {y:yy,m:mm}=ymParts(R.ym), dt=d=>new Date(Date.UTC(yy,mm-1,Math.max(1,d||1)));
   const head=(ws,row,cells)=>{ const r=ws.getRow(row); cells.forEach((c,i)=>{ const x=r.getCell(i+1); x.value=c; x.font={bold:true,color:{argb:"FFFFFFFF"}}; x.fill={type:"pattern",pattern:"solid",fgColor:{argb:FOREST}}; x.alignment={vertical:"middle",horizontal:i?"center":"left"}; }); r.height=20; };
