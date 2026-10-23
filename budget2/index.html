@@ -389,7 +389,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v22 · 23 octobre 2026";
+const APP_VERSION="v23 · 23 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -2292,9 +2292,9 @@ function editDeviceName(){
       render(); });
 }
 const QUOTES={
-  ok:[["Petit à petit, l'oiseau fait son nid.","Proverbe"],["Les petits ruisseaux font les grandes rivières.","Proverbe"],["Rien ne sert de courir ; il faut partir à point.","La Fontaine"],["Il faut semer pour récolter.","Proverbe"],["Qui va doucement va sûrement.","Proverbe"],["Un sou épargné est un sou gagné.","Proverbe"],["Le travail éloigne de nous trois grands maux : l'ennui, le vice et le besoin.","Voltaire"],["Bien faire et laisser dire.","Proverbe"]],
-  watch:[["Qui veut voyager loin ménage sa monture.","Racine"],["Prudence est mère de sûreté.","Proverbe"],["Mieux vaut prévenir que guérir.","Proverbe"],["Patience et longueur de temps font plus que force ni que rage.","La Fontaine"],["Un tiens vaut mieux que deux tu l'auras.","La Fontaine"],["Il faut cultiver notre jardin.","Voltaire"]],
-  tough:[["La patience est la clé de la délivrance.","Proverbe arabe"],["Après la pluie, le beau temps.","Proverbe"],["Aide-toi, le ciel t'aidera.","La Fontaine"],["À cœur vaillant rien d'impossible.","Jacques Cœur"],["Tout vient à point à qui sait attendre.","Proverbe"],["Ce n'est pas parce que les choses sont difficiles que nous n'osons pas, c'est parce que nous n'osons pas qu'elles sont difficiles.","Sénèque"],["On n'est jamais si heureux ni si malheureux qu'on s'imagine.","La Rochefoucauld"]]};
+  ok:[["Petit à petit, l'oiseau fait son nid.","Proverbe"],["Les petits ruisseaux font les grandes rivières.","Proverbe"],["Rien ne sert de courir ; il faut partir à point.","La Fontaine"],["Il faut semer pour récolter.","Proverbe"],["Qui va doucement va sûrement.","Proverbe"],["Un sou épargné est un sou gagné.","Proverbe"],["Le travail éloigne de nous trois grands maux : l'ennui, le vice et le besoin.","Voltaire"],["Bien faire et laisser dire.","Proverbe"],["Contentement passe richesse.","Proverbe"],["L'union fait la force.","Devise"],["La fortune sourit aux audacieux.","Virgile"],["L'argent est un bon serviteur et un mauvais maître.","Proverbe"],["Qui persévère réussit.","Proverbe arabe"]],
+  watch:[["Qui veut voyager loin ménage sa monture.","Racine"],["Prudence est mère de sûreté.","Proverbe"],["Mieux vaut prévenir que guérir.","Proverbe"],["Patience et longueur de temps font plus que force ni que rage.","La Fontaine"],["Un tiens vaut mieux que deux tu l'auras.","La Fontaine"],["Il faut cultiver notre jardin.","Voltaire"],["Étends tes jambes selon la longueur de ta couverture.","Proverbe arabe"],["Il ne faut pas vendre la peau de l'ours avant de l'avoir tué.","Proverbe"],["Le temps, c'est de l'argent.","Benjamin Franklin"],["Petit à petit, l'oiseau fait son nid.","Proverbe"]],
+  tough:[["La patience est la clé de la délivrance.","Proverbe arabe"],["Après la pluie, le beau temps.","Proverbe"],["Aide-toi, le ciel t'aidera.","La Fontaine"],["À cœur vaillant rien d'impossible.","Jacques Cœur"],["Tout vient à point à qui sait attendre.","Proverbe"],["Ce n'est pas parce que les choses sont difficiles que nous n'osons pas, c'est parce que nous n'osons pas qu'elles sont difficiles.","Sénèque"],["On n'est jamais si heureux ni si malheureux qu'on s'imagine.","La Rochefoucauld"],["Un voyage de mille lieues commence par un premier pas.","Lao Tseu"],["À chaque jour suffit sa peine.","Proverbe"],["Qui persévère réussit.","Proverbe arabe"],["Petite pluie abat grand vent.","Proverbe"]]};
 // état des comptes : alerte grave → tough, point à surveiller → watch, sinon ok
 function accountsMood(){
   const ym=ymNow(); if(!S.months[ym]) return "ok";
@@ -2303,12 +2303,29 @@ function accountsMood(){
   if(L.some(a=>a.lvl==="warn"||a.lvl==="crit")) return "watch";
   return "ok";
 }
-// une nouvelle citation toutes les 2 semaines (période fixe de 14 jours), dans la liste qui correspond à l'état des comptes
-function quoteNow(){
-  const d=new Date(), day=Math.floor(Date.UTC(d.getFullYear(),d.getMonth(),d.getDate())/864e5);
-  const period=Math.floor((day-4)/14), list=QUOTES[accountsMood()];
-  return list[((period*5)%list.length+list.length)%list.length];
+// une nouvelle citation toutes les 2 ou 3 ouvertures de l'appli (compté sur chaque appareil), et tout de suite si l'état des comptes change
+const QUOTE_KEY="budget2.citation";
+function quoteState(){ try{ return JSON.parse(localStorage.getItem(QUOTE_KEY)||"null"); }catch(e){ return null; } }
+function quoteSave(q){ try{ localStorage.setItem(QUOTE_KEY,JSON.stringify(q)); }catch(e){} }
+let _quoteMem=null;
+function quotePick(mood,prev){ const n=QUOTES[mood].length; let i=Math.floor(Math.random()*n); if(n>1&&i===prev) i=(i+1)%n;
+  return {mood,i,n:0,th:2+Math.floor(Math.random()*2)}; }
+function quoteOpened(){ // appelée à chaque ouverture
+  const mood=accountsMood(); let q=quoteState()||_quoteMem;
+  if(!q||q.mood!==mood||!QUOTES[mood][q.i]) q=quotePick(mood,-1);
+  else { q.n=(q.n||0)+1; if(q.n>=(q.th||2)) q=quotePick(mood,q.i); }
+  _quoteMem=q; quoteSave(q);
 }
+function quoteNow(){
+  const mood=accountsMood(); let q=quoteState()||_quoteMem;
+  if(!q||q.mood!==mood||!QUOTES[mood][q.i]){ q=quotePick(mood,q&&q.mood===mood?q.i:-1); _quoteMem=q; quoteSave(q); }
+  return QUOTES[mood][q.i];
+}
+let _hiddenAt=0;
+document.addEventListener("visibilitychange",()=>{
+  if(document.visibilityState==="hidden") _hiddenAt=Date.now();
+  else if(_hiddenAt&&Date.now()-_hiddenAt>60000){ _hiddenAt=0; try{ quoteOpened(); render(); }catch(e){} }
+});
 function editSync(pre){
   const hasData=Object.values(S.months).some(M=>M.ops.length>0)||S.recurring.length>0;
   openSheet("Synchronisation à deux",
@@ -2573,7 +2590,7 @@ async function buildXlsx(R){
 
 (async function init(){
   const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); fixOct2Once(); }
-  Sync.loadCfg(); month(cur); render(); Sync.start();
+  Sync.loadCfg(); month(cur); try{ quoteOpened(); }catch(e){} render(); Sync.start();
   if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}); }catch(e){} }
 })();
 </script>
