@@ -366,7 +366,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
   <div class="hbar">
     <button class="rb" id="gear" aria-label="Réglages"></button>
     <button class="rb g" id="savBtn" aria-label="Épargne"></button>
-    <div class="hello" style="text-align:right"><div class="s1">Budget</div><div class="s2" id="hello">Bonjour</div></div>
+    <div class="hello" style="text-align:right;cursor:pointer" onclick="editDeviceName()" title="Changer le prénom"><div class="s1">Budget</div><div class="s2" id="hello">Bonjour</div></div>
     <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=4" alt=""><span id="syncDot" class="sdot off"></span></div>
   </div>
   <div class="quote" id="quote"></div>
@@ -389,7 +389,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v21 · 23 octobre 2026";
+const APP_VERSION="v22 · 23 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -2277,6 +2277,7 @@ function syncCard(){
       <div class="l"><span class="n">État</span><span class="a" style="font-weight:520;font-family:var(--sans);text-align:right" id="syncState">${syncLabel()}</span></div>
       <div class="l tap" onclick="editDeviceName()"><span class="n">Prénom sur cet appareil<small>affiché dans « Bonjour »</small></span><span class="a" style="font-weight:520">${esc(Sync.cfg.name||"à saisir")}</span></div>
     </div>
+    <button class="btn sm ghost" style="margin-top:10px" onclick="editDeviceName()">Modifier le prénom</button>
     <button class="btn sm ghost" style="margin-top:10px" onclick="leaveSync()">Désactiver sur ce téléphone</button></div>`;
 }
 /* ================= prénom de l'appareil et citation ================= */
