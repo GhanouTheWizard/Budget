@@ -688,7 +688,7 @@ function renderInner(){
   he.style.fontSize=he.textContent.length>22?"15px":he.textContent.length>16?"17px":"";
   try{ const q=quoteNow(); document.getElementById("quote").innerHTML=`« ${esc(q[0])} »<b>${esc(q[1])}</b>`; }catch(e){}
   try{ const tp=tab==="today"?tipNow():""; document.getElementById("conseil").innerHTML=tp?`<span>Conseil</span>${esc(tp)}`:""; }catch(e){}
-  document.getElementById("fab").style.display=(tab==="reglages"||tab==="today")?"none":"grid";
+  document.getElementById("fab").style.display=tab==="reglages"?"none":"grid";
   document.querySelectorAll("nav button").forEach(b=>b.classList.toggle("on",b.dataset.tab===tab));
   document.getElementById("gear").classList.toggle("on",tab==="reglages");
   document.getElementById("savBtn").classList.toggle("on",tab==="epargne");
