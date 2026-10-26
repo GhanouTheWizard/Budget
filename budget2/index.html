@@ -3,12 +3,12 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-<title>Budget</title>
+<title>Le Grand Sou</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F3F2EE">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Budget">
+<meta name="apple-mobile-web-app-title" content="Le Grand Sou">
 <link rel="apple-touch-icon" href="icon-180.png?v=4">
 <style>
 :root{
@@ -369,7 +369,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
   <div class="hbar">
     <button class="rb" id="gear" aria-label="Réglages"></button>
     <button class="rb g" id="savBtn" aria-label="Épargne"></button>
-    <div class="hello" style="text-align:right;cursor:pointer" onclick="editDeviceName()" title="Changer le prénom"><div class="s1">Budget</div><div class="s2" id="hello">Bonjour</div></div>
+    <div class="hello" style="text-align:right;cursor:pointer" onclick="editDeviceName()" title="Changer le prénom"><div class="s1">Le Grand Sou</div><div class="s2" id="hello">Bonjour</div></div>
     <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=4" alt=""><span id="syncDot" class="sdot off"></span></div>
   </div>
   <div class="quote" id="quote"></div>
@@ -393,7 +393,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v24 · 23 octobre 2026";
+const APP_VERSION="v25 · 26 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1630,7 +1630,7 @@ function vReglages(){
     <div class="hint" style="margin:6px 0 12px">Efface tout, sans retour possible.</div>
     <button class="btn sm danger" onclick="wipe()">Tout effacer</button>
   </div>
-  <div class="hint" style="text-align:center;padding:4px 0 10px">Budget · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
+  <div class="hint" style="text-align:center;padding:4px 0 10px">Le Grand Sou · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
 }
 
 /* ================= feuille modale ================= */
@@ -2411,7 +2411,7 @@ function reportData(ym){
     cats,catTot:cats.reduce((t,c)=>t+c.v,0),charges,ops,hist,savings,savTot:savingsTotal(),moves:M.moves,courses:{b:C.courses,s:C.spentCourses},reste:C.reste,
     pending:C.nPending?{n:C.nPending,v:C.pendingTot}:null};
 }
-const fileName=(R,ext)=>"Budget-"+R.ym+"."+ext;
+const fileName=(R,ext)=>"Le-Grand-Sou-"+R.ym+"."+ext;
 
 /* remise du fichier : partage iOS (Fichiers, Mail, WhatsApp…) ou téléchargement */
 function deliver(blob,name,label){
@@ -2532,13 +2532,13 @@ function buildPdf(R){
 
   // pied de page
   const np=doc.getNumberOfPages();
-  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Budget · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
+  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Le Grand Sou · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
   return doc.output("blob");
 }
 
 /* ---------- Excel ---------- */
 async function buildXlsx(R){
-  const wb=new ExcelJS.Workbook(); wb.creator="Budget"; wb.created=new Date();
+  const wb=new ExcelJS.Workbook(); wb.creator="Le Grand Sou"; wb.created=new Date();
   const EUR='#,##0.00 "€";[Red]-#,##0.00 "€"', FOREST="FF2E5237", LIGHT="FFF3F2EE", ORANGE="FFF39A1E";
   const {y:yy,m:mm}=ymParts(R.ym), dt=d=>new Date(Date.UTC(yy,mm-1,Math.max(1,d||1)));
   const head=(ws,row,cells)=>{ const r=ws.getRow(row); cells.forEach((c,i)=>{ const x=r.getCell(i+1); x.value=c; x.font={bold:true,color:{argb:"FFFFFFFF"}}; x.fill={type:"pattern",pattern:"solid",fgColor:{argb:FOREST}}; x.alignment={vertical:"middle",horizontal:i?"center":"left"}; }); r.height=20; };

@@ -1,6 +1,6 @@
 {
-  "name": "Budget",
-  "short_name": "Budget",
+  "name": "Le Grand Sou",
+  "short_name": "Grand Sou",
   "description": "Le mois comme un rituel : départ, répartition sur les comptes, enveloppes, épargne.",
   "start_url": "./index.html",
   "scope": "./",
