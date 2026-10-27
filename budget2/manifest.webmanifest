@@ -1,6 +1,6 @@
 {
-  "name": "Le Grand Sou",
-  "short_name": "Grand Sou",
+  "name": "Sou'Rire",
+  "short_name": "Sou'Rire",
   "description": "Le mois comme un rituel : départ, répartition sur les comptes, enveloppes, épargne.",
   "start_url": "./index.html",
   "scope": "./",
@@ -10,8 +10,8 @@
   "theme_color": "#1B2430",
   "lang": "fr",
   "icons": [
-    { "src": "icon-180.png?v=4", "sizes": "180x180", "type": "image/png" },
-    { "src": "icon-512.png?v=4", "sizes": "512x512", "type": "image/png", "purpose": "any" },
-    { "src": "icon-512.png?v=4", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+    { "src": "icon-180.png?v=5", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png?v=5", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png?v=5", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1, user-scalable=no">
-<title>Le Grand Sou</title>
+<title>Sou'Rire</title>
 <link rel="manifest" href="manifest.webmanifest">
 <meta name="theme-color" content="#F3F2EE">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
-<meta name="apple-mobile-web-app-title" content="Le Grand Sou">
-<link rel="apple-touch-icon" href="icon-180.png?v=4">
+<meta name="apple-mobile-web-app-title" content="Sou'Rire">
+<link rel="apple-touch-icon" href="icon-180.png?v=5">
 <style>
 :root{
   --ink:#1B2430; --ink-2:#465364; --ink-3:#7E8B99;
@@ -333,6 +333,10 @@ main{padding-top:8px}
 .tiles .wide .i{background:#F4D2CC;flex:none}
 .tiles .wide .tx{flex:1} .tiles .wide small{display:block;font-size:12px;font-weight:500;color:#C58A82;margin-top:1px}
 .tiles .wide b{font-variant-numeric:tabular-nums}
+.advice .at{font-size:11px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--forest);margin:2px 0 6px}
+.advice ul{margin:0 0 12px;padding-left:18px}
+.advice ul:last-of-type{margin-bottom:4px}
+.advice li{font-size:14px;line-height:1.45;color:var(--ink-2);margin-bottom:7px}
 .secH{font-size:15px;font-weight:700;margin:6px 4px 10px;display:flex;justify-content:space-between;align-items:baseline}
 .secH span{font-size:12.5px;color:var(--ink-3);font-weight:500}
 /* comptes */
@@ -369,8 +373,8 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
   <div class="hbar">
     <button class="rb" id="gear" aria-label="Réglages"></button>
     <button class="rb g" id="savBtn" aria-label="Épargne"></button>
-    <div class="hello" style="text-align:right;cursor:pointer" onclick="editDeviceName()" title="Changer le prénom"><div class="s1">Le Grand Sou</div><div class="s2" id="hello">Bonjour</div></div>
-    <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=4" alt=""><span id="syncDot" class="sdot off"></span></div>
+    <div class="hello" style="text-align:right;cursor:pointer" onclick="editDeviceName()" title="Changer le prénom"><div class="s1">Sou'Rire</div><div class="s2" id="hello">Bonjour</div></div>
+    <div class="brand" onclick="go('reglages')"><img src="icon-180.png?v=5" alt=""><span id="syncDot" class="sdot off"></span></div>
   </div>
   <div class="quote" id="quote"></div>
   <div class="conseil" id="conseil"></div>
@@ -393,7 +397,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v26 · 27 octobre 2026";
+const APP_VERSION="v27 · 27 octobre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1324,7 +1328,7 @@ function vToday(){
   </div>`;
   const safe=!alm&&isCur()?`<div class="safe"><span class="ok">${ico("check")}</span><span class="tx">Tout est sous contrôle ce mois-ci</span></div>`:"";
 
-  return storeBanner()+hero+dayStrip(M)+alm+safe+tiles+stepsBar()+planBanner()+`
+  return storeBanner()+hero+dayStrip(M)+alm+safe+tiles+adviceCard()+stepsBar()+planBanner()+`
   <div class="secH">Les comptes <span>touche pour le prévisionnel</span></div>
   ${bw?`<div class="banner"><b>Fenêtre aveugle du week-end.</b> ${C.nPending} opération${C.nPending>1?"s":""} pour ${eur0(C.pendingTot)} n'apparaîtron${C.nPending>1?"t":"t"} à la banque que mardi ou mercredi. Les montants en gros sont les vrais soldes, ils en tiennent déjà compte.</div>`:``}
   ${cur===PROP.id&&S.plan===PLAN_ID?propCard("today"):""}
@@ -1630,7 +1634,7 @@ function vReglages(){
     <div class="hint" style="margin:6px 0 12px">Efface tout, sans retour possible.</div>
     <button class="btn sm danger" onclick="wipe()">Tout effacer</button>
   </div>
-  <div class="hint" style="text-align:center;padding:4px 0 10px">Le Grand Sou · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
+  <div class="hint" style="text-align:center;padding:4px 0 10px">Sou'Rire · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
 }
 
 /* ================= feuille modale ================= */
@@ -2330,6 +2334,65 @@ function quoteNow(){
   if(!q||q.mood!==mood||!QUOTES[mood][q.i]){ q=quotePick(mood,q&&q.mood===mood?q.i:-1,q); _quoteMem=q; quoteSave(q); }
   return QUOTES[mood][q.i];
 }
+/* ================= conseils détaillés (carte de l'écran Aujourd'hui) ================= */
+/* « ce mois-ci » : ce qu'on peut faire maintenant ; « le mois prochain » : comment repartir d'un mois difficile ou prolonger un bon mois */
+let adviceOff=0;
+function moreAdvice(){ adviceOff++; const y=scrollY; render(); scrollTo(0,y); }
+function adviceData(ym){
+  const M=month(ym), C=calc(ym), mood=accountsMood(), dim=daysIn(ym), t=Math.min(new Date().getDate(),dim), left=dim-t+1;
+  const prevYm=ymShift(ym,-1), P=S.months[prevYm]?calc(prevYm):null, pName=MONTHS[ymParts(prevYm).m-1], nName=MONTHS[ymParts(ymShift(ym,1)).m-1];
+  const inc=C.salaryTot+C.recvTot+C.extraTot, now=[], next=[];
+  const cats=S.categories.filter(c=>c.pocket!=="courses"&&c.pocket!=="repas"&&!c.refund).map(c=>({c,v:C.byCat[c.id]||0,b:+c.budget||0,p:P?(P.byCat[c.id]||0):0})).filter(x=>x.v>0.5);
+  const top=cats.slice().sort((a,b)=>b.v-a.v)[0];
+  const over=cats.filter(x=>x.b>0&&x.v>x.b).sort((a,b)=>(b.v-b.b)-(a.v-a.b));
+  // ---- ce mois-ci
+  if(top&&C.spentAll>0) now.push(`Le plus gros poste du mois, c'est ${top.c.name} : ${eur0(top.v)}, soit ${Math.round(top.v/C.spentAll*100)} % des dépenses courantes. C'est là qu'un petit effort se voit le plus.`);
+  if(P){ const up=cats.map(x=>Object.assign(x,{d:x.v-x.p})).filter(x=>x.p>0&&x.d>20).sort((a,b)=>b.d-a.d)[0];
+    if(up) now.push(`${up.c.name} : ${eur0(up.v)} déjà ce mois-ci contre ${eur0(up.p)} sur tout ${pName}. Ça vaut le coup de regarder ce qui a changé.`);
+    const down=cats.map(x=>Object.assign(x,{d:x.p-x.v})).filter(x=>t>=20&&x.d>20).sort((a,b)=>b.d-a.d)[0];
+    if(down) now.push(`Bravo sur ${down.c.name} : ${eur0(down.v)} contre ${eur0(down.p)} en ${pName}. La différence peut partir directement à l'épargne.`); }
+  const small=M.ops.filter(o=>o.kind==="out"&&!o.proj&&(+o.amount||0)>0&&(+o.amount||0)<15);
+  if(small.length>=6){ const tot=small.reduce((s,o)=>s+(+o.amount||0),0); now.push(`${small.length} petits achats de moins de 15 € ce mois-ci, pour ${eur0(tot)} au total. Un par un ils ne se sentent pas, ensemble ils pèsent.`); }
+  if(C.courses>0){ const wk=Math.max(1,Math.ceil(left/7)); if(C.spentCourses>C.courses) now.push(`Courses : ${eur0(C.spentCourses-C.courses)} au-dessus de l'enveloppe. Pour les ${left} jours qui restent, on vide d'abord le frigo et les placards avant de racheter.`);
+    else if(C.coursesLeft>0.5&&left>3) now.push(`Courses : ${eur0(C.coursesLeft)} pour ${wk} semaine${wk>1?"s":""}, donc ${eur0(C.coursesLeft/wk)} par plein. Une liste faite avant de partir, c'est souvent 10 à 15 % de moins sur le ticket.`); }
+  if(inc>0&&C.fixed/inc>0.5){ const big=M.charges.slice().sort((a,b)=>(+b.amount||0)-(+a.amount||0)).slice(0,3).map(c=>c.label).join(", ");
+    now.push(`Les prélèvements fixes prennent ${Math.round(C.fixed/inc*100)} % des rentrées. Les plus lourds : ${big}. Un appel pour renégocier l'un d'eux (assurance, box, téléphone) fait gagner tous les mois.`); }
+  if(C.toRefund>0.5) now.push(`${eur0(C.toRefund)} à te faire rembourser. Une relance aujourd'hui, c'est de l'argent qui revient avant la fin du mois.`);
+  if(mood==="tough") now.push(`Pour les ${left} jours qui restent : courses et essentiel seulement. Chaque euro évité maintenant, c'est un euro de frais bancaires en moins.`);
+  if(mood==="ok"&&C.reste>20) now.push(`Il reste ${eur0(C.reste)} de libre. En mettre ${eur0(Math.max(10,Math.floor(C.reste/2/10)*10))} de côté aujourd'hui, avant que ça file ailleurs, c'est la meilleure décision du mois.`);
+  // ---- le mois prochain
+  if(C.reste< -1){ const per=Math.ceil(-C.reste/3/10)*10;
+    next.push(`Ce mois finit avec ${eur0(-C.reste)} de manque. Plutôt que tout rattraper d'un coup, vise ${eur0(per)} de moins par mois pendant 3 mois : c'est tenable et ça remet les comptes à flot.`);
+    if(top) next.push(`Pour trouver ces ${eur0(per)}, le plus simple est de partir de ${top.c.name} (${eur0(top.v)} ce mois-ci) et de fixer un plafond un peu plus bas dans Enveloppes.`); }
+  over.slice(0,2).forEach(x=>next.push(`${x.c.name} a dépassé son plafond de ${eur0(x.v-x.b)}. En ${nName}, soit tu remontes le plafond à ${eur0(Math.ceil(x.v/10)*10)} pour qu'il colle à la réalité, soit tu le gardes et tu lèves le pied dès le 15.`));
+  const lep=M.moves.filter(m=>m.kind==="out").reduce((s,m)=>s+(+m.amount||0),0);
+  if(lep>0) next.push(`${eur0(lep)} ont été pris sur l'épargne. Remets-les en ${Math.min(3,Math.max(1,Math.ceil(lep/150)))} fois dès les prochains salaires, avec un virement programmé le jour de la paie pour ne pas l'oublier.`);
+  if(C.reste>20&&mood!=="tough"){ const goal=Math.floor(C.reste*0.8/10)*10;
+    if(goal>=10) next.push(`Ce mois laisse environ ${eur0(C.reste)} de marge. En ${nName}, programme un virement de ${eur0(goal)} vers l'épargne le jour du salaire : ce qu'on ne voit pas, on ne le dépense pas.`); }
+  if(inc>0){ const rate=Math.round(Math.max(0,C.savedNet)/inc*100);
+    if(rate<10) next.push(`L'épargne représente ${rate} % des rentrées ce mois-ci. Un bon repère, c'est 10 %, même en commençant par 5 % le mois prochain.`);
+    else next.push(`${rate} % des rentrées mis de côté, c'est un très bon rythme. Garde le même virement en ${nName} plutôt que de viser plus haut d'un coup.`); }
+  if(P&&P.spentAll>0&&C.spentAll>0&&t>=dim-3){ const d=C.spentAll-P.spentAll;
+    if(Math.abs(d)>30) next.push(d>0?`Les dépenses courantes ont augmenté de ${eur0(d)} par rapport à ${pName}. Pour ${nName}, ajuste les enveloppes ou prévois ce qui a coûté plus cher.`:`${eur0(-d)} de dépenses en moins qu'en ${pName} : garde les mêmes habitudes en ${nName}, c'est elles qui font la différence.`); }
+  if(mood!=="ok") next.push(`Fais le départ du mois dès le salaire : l'appli propose les virements et met les enveloppes à l'abri avant toute autre dépense.`);
+  else next.push(`Un mois qui se passe bien, c'est le bon moment pour anticiper : une grosse dépense à venir (vacances, voiture, naissance) peut devenir un projet dans Enveloppes, à petites parts chaque mois.`);
+  return {now,next,mood};
+}
+function adviceCard(){
+  if(!isCur()) return "";
+  const M=month(cur); if(!M.steps.depart&&!M.ops.length) return "";
+  const D=adviceData(cur); if(!D.now.length&&!D.next.length) return "";
+  const pick=(L,n)=>{ if(L.length<=n) return L; const o=(adviceOff*n)%L.length; return L.concat(L).slice(o,o+n); };
+  const li=L=>L.map(x=>`<li>${esc(x)}</li>`).join("");
+  const head={ok:"Le mois se passe bien",watch:"Quelques points à surveiller",tough:"Mois difficile : on remonte la pente"}[D.mood];
+  const many=D.now.length>3||D.next.length>3;
+  return `<div class="secH">Conseils <span>${esc(head)}</span></div>
+  <div class="card advice">
+    ${D.now.length?`<div class="at">Ce mois-ci</div><ul>${li(pick(D.now,3))}</ul>`:""}
+    ${D.next.length?`<div class="at">Le mois prochain</div><ul>${li(pick(D.next,3))}</ul>`:""}
+    ${many?`<button class="toggle" onclick="moreAdvice()">Autres conseils →</button>`:""}
+  </div>`;
+}
 // conseils concrets, calculés sur les vrais chiffres du mois en cours
 function tipsFor(mood){
   const ym=ymNow(); if(!S.months[ym]) return ["Commence le mois en notant les soldes du 1er : l'appli pourra alors te dire où tu en es chaque jour."];
@@ -2415,7 +2478,7 @@ function reportData(ym){
     cats,catTot:cats.reduce((t,c)=>t+c.v,0),charges,ops,hist,savings,savTot:savingsTotal(),moves:M.moves,courses:{b:C.courses,s:C.spentCourses},reste:C.reste,
     pending:C.nPending?{n:C.nPending,v:C.pendingTot}:null};
 }
-const fileName=(R,ext)=>"Le-Grand-Sou-"+R.ym+"."+ext;
+const fileName=(R,ext)=>"Sou-Rire-"+R.ym+"."+ext;
 
 /* remise du fichier : partage iOS (Fichiers, Mail, WhatsApp…) ou téléchargement */
 function deliver(blob,name,label){
@@ -2536,13 +2599,13 @@ function buildPdf(R){
 
   // pied de page
   const np=doc.getNumberOfPages();
-  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Le Grand Sou · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
+  for(let i=1;i<=np;i++){ doc.setPage(i); col(PC.grey); doc.setFontSize(7.2); doc.text(pt(`Sou'Rire · ${R.title} · édité le ${new Date().toLocaleDateString("fr-FR")}`),m,H-8); doc.text(`${i} / ${np}`,W-m,H-8,{align:"right"}); }
   return doc.output("blob");
 }
 
 /* ---------- Excel ---------- */
 async function buildXlsx(R){
-  const wb=new ExcelJS.Workbook(); wb.creator="Le Grand Sou"; wb.created=new Date();
+  const wb=new ExcelJS.Workbook(); wb.creator="Sou'Rire"; wb.created=new Date();
   const EUR='#,##0.00 "€";[Red]-#,##0.00 "€"', FOREST="FF2E5237", LIGHT="FFF3F2EE", ORANGE="FFF39A1E";
   const {y:yy,m:mm}=ymParts(R.ym), dt=d=>new Date(Date.UTC(yy,mm-1,Math.max(1,d||1)));
   const head=(ws,row,cells)=>{ const r=ws.getRow(row); cells.forEach((c,i)=>{ const x=r.getCell(i+1); x.value=c; x.font={bold:true,color:{argb:"FFFFFFFF"}}; x.fill={type:"pattern",pattern:"solid",fgColor:{argb:FOREST}}; x.alignment={vertical:"middle",horizontal:i?"center":"left"}; }); r.height=20; };
