@@ -1,0 +1,348 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Bien Luné</title>
+<meta name="theme-color" content="#0e1430">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Bien Luné">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon-180.png">
+<link rel="icon" href="icon-192.png">
+<style>
+:root{
+  --bg:#0e1430; --bg2:#151d42; --card:#1a2350; --line:#2a3570;
+  --text:#eef0fb; --muted:#9aa3cf; --gold:#f4cf6b; --gold2:#e8b23c;
+  --water:#5ec8f2; --ok:#7fdca0; --radius:18px;
+}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;background:var(--bg);color:var(--text)}
+body{font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  background:radial-gradient(120% 60% at 50% -10%,#26306b 0%,var(--bg) 60%) fixed;
+  min-height:100vh;padding:calc(env(safe-area-inset-top) + 14px) 16px calc(env(safe-area-inset-bottom) + 90px)}
+.wrap{max-width:520px;margin:0 auto}
+h1{font-family:Georgia,"Times New Roman",serif;font-weight:600;font-size:30px;margin:0;letter-spacing:.3px}
+h1 span{color:var(--gold)}
+.top{display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:14px}
+.date{color:var(--muted);font-size:14px;margin-top:4px;text-transform:capitalize}
+.phase{color:var(--muted);font-size:13px;margin-top:2px}
+.iconbtn{background:var(--card);border:1px solid var(--line);color:var(--text);border-radius:12px;width:42px;height:42px;font-size:19px}
+.card{background:linear-gradient(180deg,var(--card),var(--bg2));border:1px solid var(--line);border-radius:var(--radius);padding:16px;margin-bottom:12px}
+.streak{display:flex;align-items:center;gap:14px}
+.bigmoon{font-size:48px;line-height:1;filter:drop-shadow(0 0 14px rgba(244,207,107,.35))}
+.streak b{font-size:20px}
+.streak small{display:block;color:var(--muted);margin-top:2px;font-size:13px}
+.prog{height:8px;background:#0b1029;border-radius:8px;overflow:hidden;margin-top:12px}
+.prog i{display:block;height:100%;background:linear-gradient(90deg,var(--gold2),var(--gold));border-radius:8px;transition:width .4s}
+.water-head{display:flex;justify-content:space-between;align-items:baseline}
+.water-head b{font-size:17px}
+.water-head span{color:var(--muted);font-size:14px}
+.glasses{display:flex;flex-wrap:wrap;gap:6px;margin:12px 0}
+.glass{width:30px;height:38px;border:2px solid var(--line);border-top:none;border-radius:0 0 8px 8px;position:relative;overflow:hidden}
+.glass.full::after{content:"";position:absolute;left:0;right:0;bottom:0;height:80%;background:var(--water);opacity:.9}
+.waterbtns{display:flex;gap:10px}
+.btn{border:none;border-radius:14px;padding:14px;font-size:16px;font-weight:600;color:#0e1430;background:var(--gold);flex:1}
+.btn.water{background:var(--water)}
+.btn.ghost{background:transparent;color:var(--text);border:1px solid var(--line);flex:0 0 56px}
+.btn:active{transform:scale(.97)}
+.block{padding:0;overflow:hidden}
+.bhead{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;cursor:pointer}
+.bhead .t{font-size:17px;font-weight:600}
+.bhead .t small{font-weight:400;color:var(--muted);margin-left:6px;font-size:13px}
+.now{font-size:11px;background:var(--gold);color:#0e1430;border-radius:20px;padding:2px 8px;margin-left:8px;font-weight:700;vertical-align:middle}
+.chev{color:var(--muted);transition:transform .2s}
+.block.open .chev{transform:rotate(90deg)}
+.bbody{display:none;padding:0 16px 16px}
+.block.open .bbody{display:block}
+.item{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.item:first-child{border-top:none}
+.check{width:28px;height:28px;border-radius:50%;border:2px solid var(--muted);flex:0 0 28px;display:grid;place-items:center;font-size:15px;color:#0e1430}
+.item.done .check{background:var(--ok);border-color:var(--ok)}
+.item.done .lbl{color:var(--muted);text-decoration:line-through}
+.lbl{flex:1;font-size:16px}
+.edit-tools{display:none;gap:4px}
+.editing .edit-tools{display:flex}
+.editing .check{opacity:.35}
+.mini{background:var(--bg);border:1px solid var(--line);color:var(--text);border-radius:8px;width:32px;height:32px;font-size:14px}
+.addrow{display:none;gap:8px;margin-top:10px}
+.editing .addrow{display:flex}
+input[type=text],input[type=number],input[type=time]{background:#0b1029;border:1px solid var(--line);color:var(--text);border-radius:10px;padding:10px;font-size:16px;flex:1;min-width:0}
+.timebox{display:flex;align-items:center;gap:10px;background:#0b1029;border:1px solid var(--line);border-radius:14px;padding:10px 12px;margin-bottom:10px}
+.timebox .tb-l{flex:1;font-size:15px}
+.timebox .tb-l small{display:block;color:var(--muted);font-size:12px}
+.timebox input{flex:0 0 120px}
+.moods{display:flex;gap:8px;margin:4px 0 10px}
+.mood{flex:1;background:#0b1029;border:1px solid var(--line);border-radius:12px;padding:8px 0;font-size:24px;text-align:center}
+.mood small{display:block;font-size:11px;color:var(--muted)}
+.mood.sel{border-color:var(--gold);background:#2a2a40}
+.linkbtn{background:none;border:none;color:var(--muted);font-size:13px;padding:6px 0;text-decoration:underline}
+.sect-title{color:var(--muted);font-size:12px;text-transform:uppercase;letter-spacing:.8px;margin:6px 0}
+/* bilan */
+.week{display:flex;justify-content:space-between;align-items:flex-end;height:110px;gap:6px;margin:12px 0 6px}
+.wcol{flex:1;display:flex;flex-direction:column;align-items:center;gap:4px;height:100%;justify-content:flex-end}
+.wbar{width:100%;border-radius:6px 6px 3px 3px;background:var(--gold);min-height:3px}
+.wcol small{color:var(--muted);font-size:11px}
+.wcol .wm{font-size:13px}
+.stats{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px}
+.stat{background:#0b1029;border-radius:12px;padding:10px;text-align:center}
+.stat b{display:block;font-size:18px}
+.stat small{color:var(--muted);font-size:11px}
+/* sheet */
+.sheet-bg{position:fixed;inset:0;background:rgba(0,0,0,.55);display:none;z-index:10}
+.sheet{position:fixed;left:0;right:0;bottom:0;background:var(--bg2);border-top:1px solid var(--line);border-radius:22px 22px 0 0;padding:20px 16px calc(env(safe-area-inset-bottom) + 20px);z-index:11;transform:translateY(105%);transition:transform .25s,visibility .25s;visibility:hidden;max-height:85vh;overflow:auto}
+.sheet.show{transform:none;visibility:visible}
+.sheet h2{margin:0 0 12px;font-family:Georgia,serif;font-weight:600}
+.field{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-bottom:1px solid var(--line)}
+.field label{font-size:15px}
+.field input{flex:0 0 110px}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 24px);transform:translateX(-50%) translateY(140%);background:var(--gold);color:#0e1430;padding:12px 18px;border-radius:14px;font-weight:600;transition:transform .3s;z-index:20;white-space:nowrap}
+.toast.show{transform:translateX(-50%)}
+.foot{color:var(--muted);font-size:12px;text-align:center;margin-top:18px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div>
+      <h1>Bien <span>Luné</span></h1>
+      <div class="date" id="date"></div>
+      <div class="phase" id="phase"></div>
+    </div>
+    <button class="iconbtn" id="openSettings" aria-label="Réglages">⚙️</button>
+  </div>
+
+  <div class="card">
+    <div class="streak">
+      <div class="bigmoon" id="streakMoon">🌑</div>
+      <div><b id="streakTxt"></b><small id="streakSub"></small></div>
+    </div>
+    <div class="prog"><i id="dayProg" style="width:0"></i></div>
+  </div>
+
+  <div class="card">
+    <div class="water-head"><b>💧 Hydratation</b><span id="waterTxt"></span></div>
+    <div class="glasses" id="glasses"></div>
+    <div class="waterbtns">
+      <button class="btn ghost" id="waterMinus" aria-label="Retirer un verre">−</button>
+      <button class="btn water" id="waterPlus">+1 verre</button>
+    </div>
+  </div>
+
+  <div id="blocks"></div>
+
+  <div class="card">
+    <div class="water-head"><b>📊 Ma semaine</b><span id="weekRate"></span></div>
+    <div class="week" id="week"></div>
+    <div class="stats" id="stats"></div>
+  </div>
+
+  <div class="foot">Tes données restent sur ce téléphone. Pense à faire une sauvegarde de temps en temps (⚙️).</div>
+</div>
+
+<div class="sheet-bg" id="sheetBg"></div>
+<div class="sheet" id="sheet">
+  <h2>Réglages</h2>
+  <div class="field"><label>Objectif (verres / jour)</label><input type="number" id="setGoal" min="1" max="20"></div>
+  <div class="field"><label>Taille d'un verre (ml)</label><input type="number" id="setGlass" min="50" max="1000" step="50"></div>
+  <div class="field"><label>Coucher visé</label><input type="time" id="setBed"></div>
+  <div class="field"><label>Lever visé</label><input type="time" id="setWake"></div>
+  <div class="field"><label>Journée réussie à partir de (%)</label><input type="number" id="setThresh" min="50" max="100" step="5"></div>
+  <p class="sect-title" style="margin-top:18px">Sauvegarde</p>
+  <div class="waterbtns">
+    <button class="btn" id="exportBtn">Exporter</button>
+    <button class="btn ghost" style="flex:1" id="importBtn">Importer</button>
+  </div>
+  <input type="file" id="importFile" accept="application/json" hidden>
+  <button class="btn" style="width:100%;margin-top:16px;background:var(--card);color:var(--text);border:1px solid var(--line)" id="closeSettings">Fermer</button>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const KEY='bienlune_v1';
+const DEFAULT={
+  settings:{goal:8,glass:250,bed:'23:00',wake:'07:00',thresh:80},
+  items:{
+    matin:[{id:'m1',label:"Un grand verre d'eau au réveil"},{id:'m2',label:'5 min de lumière du jour'},{id:'m3',label:'Pas de téléphone avant le petit-déj'}],
+    journee:[{id:'j1',label:'Pas de café après 14h'},{id:'j2',label:'Bouger 20 min'}],
+    soir:[{id:'s1',label:'Écrans coupés 30 min avant'},{id:'s2',label:'Chambre aérée'},{id:'s3',label:'Réveil réglé'},{id:'s4',label:'Affaires de demain prêtes'}]
+  },
+  days:{}
+};
+const BLOCKS=[
+  {k:'matin',icon:'☀️',name:'Le matin',hours:'5h – 11h'},
+  {k:'journee',icon:'🌤️',name:'La journée',hours:'11h – 21h'},
+  {k:'soir',icon:'🌙',name:'Le soir',hours:'à partir de 21h'}
+];
+let S, editing=null, openBlock=null;
+
+function load(){try{const r=localStorage.getItem(KEY);S=r?JSON.parse(r):structuredClone(DEFAULT);}catch(e){S=structuredClone(DEFAULT);}
+  S.settings=Object.assign({},DEFAULT.settings,S.settings||{});S.items=S.items||structuredClone(DEFAULT.items);S.days=S.days||{};}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(S));}catch(e){}}
+
+const pad=n=>String(n).padStart(2,'0');
+function keyOf(d){return d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());}
+// journée "logique" : commence à 5h (un coucher à 1h compte pour la veille)
+function logicalDate(now=new Date()){return new Date(now.getTime()-5*3600e3);}
+function todayKey(){return keyOf(logicalDate());}
+function shiftKey(k,n){const [y,m,d]=k.split('-').map(Number);const dt=new Date(y,m-1,d+n);return keyOf(dt);}
+function day(k){if(!S.days[k])S.days[k]={checks:{},water:0};return S.days[k];}
+function moment(){const h=new Date().getHours();return h>=5&&h<11?'matin':h>=11&&h<21?'journee':'soir';}
+function nowHM(){const d=new Date();return pad(d.getHours())+':'+pad(d.getMinutes());}
+const toMin=t=>{const [h,m]=t.split(':').map(Number);return h*60+m;};
+
+function sleepFor(k){ // nuit qui finit le matin du jour k
+  const w=S.days[k]?.wake, b=S.days[shiftKey(k,-1)]?.bed;
+  if(!w||!b)return null;
+  let bm=toMin(b), wm=toMin(w);
+  let dur = bm>=12*60 ? (24*60-bm)+wm : wm-bm;
+  return dur>0&&dur<16*60?dur:null;
+}
+function fmtDur(m){if(m==null)return '–';return Math.floor(m/60)+'h'+pad(m%60);}
+
+function completion(k){
+  const d=S.days[k]; if(!d)return 0;
+  const all=[...S.items.matin,...S.items.journee,...S.items.soir];
+  const done=all.filter(i=>d.checks[i.id]).length+((d.water||0)>=S.settings.goal?1:0);
+  return done/(all.length+1);
+}
+const success=k=>completion(k)*100>=S.settings.thresh;
+function streak(){
+  let k=todayKey(), n=success(k)?1:0;
+  k=shiftKey(k,-1);
+  while(success(k)){n++;k=shiftKey(k,-1);}
+  return n;
+}
+const MOONS=['🌑','🌒','🌓','🌔','🌕'];
+function streakMoon(n){return n>=7?'🌕':MOONS[Math.min(3,Math.ceil(n/2))];}
+
+function moonPhase(){
+  const syn=29.530588853, ref=Date.UTC(2000,0,6,18,14);
+  const age=(((Date.now()-ref)/864e5)%syn+syn)%syn, p=age/syn;
+  const illum=Math.round((1-Math.cos(2*Math.PI*p))/2*100);
+  const names=[['🌑','Nouvelle lune'],['🌒','Premier croissant'],['🌓','Premier quartier'],['🌔','Gibbeuse croissante'],['🌕','Pleine lune'],['🌖','Gibbeuse décroissante'],['🌗','Dernier quartier'],['🌘','Dernier croissant']];
+  const i=Math.round(p*8)%8;
+  return names[i][0]+' '+names[i][1]+' · '+illum+' % éclairée';
+}
+
+function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');clearTimeout(t._t);t._t=setTimeout(()=>t.classList.remove('show'),2200);}
+function buzz(){try{navigator.vibrate&&navigator.vibrate(12);}catch(e){}}
+const esc=s=>s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+function render(){
+  const k=todayKey(), d=day(k), st=S.settings;
+  const ld=logicalDate();
+  document.getElementById('date').textContent=ld.toLocaleDateString('fr-FR',{weekday:'long',day:'numeric',month:'long'});
+  document.getElementById('phase').textContent=moonPhase();
+  // série
+  const n=streak(), c=Math.round(completion(k)*100);
+  document.getElementById('streakMoon').textContent=streakMoon(n);
+  document.getElementById('streakTxt').textContent=n===0?'Nouvelle série à lancer':n===1?'1 jour bien luné':n+' jours bien lunés d’affilée';
+  document.getElementById('streakSub').textContent="Aujourd'hui : "+c+' % (objectif '+st.thresh+' %)';
+  document.getElementById('dayProg').style.width=c+'%';
+  // eau
+  const w=d.water||0;
+  document.getElementById('waterTxt').textContent=w+' / '+st.goal+' · '+(w*st.glass/1000).toFixed(2).replace('.',',')+' L';
+  const g=document.getElementById('glasses');g.innerHTML='';
+  for(let i=0;i<Math.max(st.goal,w);i++){const e=document.createElement('div');e.className='glass'+(i<w?' full':'');g.appendChild(e);}
+  // blocs
+  const cur=moment(); if(!openBlock)openBlock=cur;
+  const wrap=document.getElementById('blocks');wrap.innerHTML='';
+  BLOCKS.forEach(b=>{
+    const items=S.items[b.k], doneN=items.filter(i=>d.checks[i.id]).length;
+    const el=document.createElement('div');
+    el.className='card block'+(openBlock===b.k?' open':'')+(editing===b.k?' editing':'');
+    let extra='';
+    if(b.k==='matin'){
+      const sl=sleepFor(k);
+      extra=`<div class="timebox"><div class="tb-l">☀️ Je suis levé<small>${d.wake?'Nuit : '+fmtDur(sl):'Visé : '+st.wake}</small></div>
+        ${d.wake?`<input type="time" value="${d.wake}" data-time="wake">`:`<button class="btn" style="flex:0 0 auto;padding:10px 14px" data-now="wake">Maintenant</button>`}</div>
+        <div class="moods">${[['😴','Crevé'],['😐','Moyen'],['😄','En forme']].map((m,i)=>`<button class="mood${d.mood===i+1?' sel':''}" data-mood="${i+1}">${m[0]}<small>${m[1]}</small></button>`).join('')}</div>`;
+    }
+    if(b.k==='soir'){
+      extra=`<div class="timebox"><div class="tb-l">🌙 Je vais dormir<small>${d.bed?'Bonne nuit !':'Visé : '+st.bed}</small></div>
+        ${d.bed?`<input type="time" value="${d.bed}" data-time="bed">`:`<button class="btn" style="flex:0 0 auto;padding:10px 14px" data-now="bed">Maintenant</button>`}</div>`;
+    }
+    el.innerHTML=`<div class="bhead" data-toggle="${b.k}"><div class="t">${b.icon} ${b.name}<small>${doneN}/${items.length}</small>${cur===b.k?'<span class="now">maintenant</span>':''}</div><span class="chev">›</span></div>
+      <div class="bbody">${extra}<div class="list">${items.map((it,idx)=>`<div class="item${d.checks[it.id]?' done':''}" data-check="${it.id}">
+        <div class="check">${d.checks[it.id]?'✓':''}</div><div class="lbl">${esc(it.label)}</div>
+        <div class="edit-tools"><button class="mini" data-up="${b.k}:${idx}">↑</button><button class="mini" data-down="${b.k}:${idx}">↓</button><button class="mini" data-del="${b.k}:${idx}">✕</button></div></div>`).join('')}</div>
+        <div class="addrow"><input type="text" placeholder="Nouvelle habitude…" data-addinput="${b.k}"><button class="btn" style="flex:0 0 auto;padding:10px 16px" data-add="${b.k}">Ajouter</button></div>
+        <button class="linkbtn" data-edit="${b.k}">${editing===b.k?'Terminé':'Modifier la liste'}</button></div>`;
+    wrap.appendChild(el);
+  });
+  renderWeek();
+}
+
+function renderWeek(){
+  const k0=todayKey(), cols=[]; let sumC=0,sumW=0,sleeps=[],moods=[],ok=0;
+  for(let i=6;i>=0;i--){
+    const k=shiftKey(k0,-i), d=S.days[k], c=completion(k);
+    const [y,m,dd]=k.split('-').map(Number), dt=new Date(y,m-1,dd);
+    sumC+=c; sumW+=d?.water||0; const s=sleepFor(k); if(s!=null)sleeps.push(s); if(d?.mood)moods.push(d.mood); if(success(k))ok++;
+    cols.push(`<div class="wcol"><span class="wm">${success(k)?'🌕':''}</span><div class="wbar" style="height:${Math.max(3,c*80)}%;opacity:${i===0?1:.75}"></div><small>${dt.toLocaleDateString('fr-FR',{weekday:'short'}).slice(0,3)}</small></div>`);
+  }
+  document.getElementById('week').innerHTML=cols.join('');
+  document.getElementById('weekRate').textContent=ok+'/7 jours réussis';
+  const avgS=sleeps.length?Math.round(sleeps.reduce((a,b)=>a+b,0)/sleeps.length):null;
+  const avgM=moods.length?moods.reduce((a,b)=>a+b,0)/moods.length:null;
+  document.getElementById('stats').innerHTML=`
+    <div class="stat"><b>${fmtDur(avgS)}</b><small>sommeil moyen</small></div>
+    <div class="stat"><b>${(sumW/7*S.settings.glass/1000).toFixed(1).replace('.',',')} L</b><small>eau / jour</small></div>
+    <div class="stat"><b>${avgM==null?'–':avgM<1.7?'😴':avgM<2.4?'😐':'😄'}</b><small>réveil moyen</small></div>`;
+}
+
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-toggle],[data-check],[data-now],[data-mood],[data-edit],[data-add],[data-up],[data-down],[data-del]');
+  if(!t)return;
+  const k=todayKey(), d=day(k), ds=t.dataset;
+  if(ds.toggle){openBlock=openBlock===ds.toggle?'none':ds.toggle;render();return;}
+  if(ds.check){ if(editing)return;
+    const was=success(k);
+    d.checks[ds.check]=!d.checks[ds.check]; buzz(); save(); render();
+    if(!was&&success(k))toast('🌕 Journée bien lunée !'); return;}
+  if(ds.now){d[ds.now]=nowHM();buzz();save();render();toast(ds.now==='bed'?'🌙 Bonne nuit !':'☀️ Bonne journée !');return;}
+  if(ds.mood){d.mood=+ds.mood;buzz();save();render();return;}
+  if(ds.edit){editing=editing===ds.edit?null:ds.edit;render();return;}
+  if(ds.add){const inp=document.querySelector(`[data-addinput="${ds.add}"]`);const v=inp.value.trim();if(!v)return;
+    S.items[ds.add].push({id:'i'+Date.now().toString(36),label:v});save();render();
+    setTimeout(()=>document.querySelector(`[data-addinput="${ds.add}"]`)?.focus(),0);return;}
+  const mv=(s,dir)=>{const [b,i]=s.split(':');const a=S.items[b],j=+i+dir;if(j<0||j>=a.length)return;[a[i],a[j]]=[a[j],a[i]];save();render();};
+  if(ds.up)return mv(ds.up,-1);
+  if(ds.down)return mv(ds.down,1);
+  if(ds.del){const [b,i]=ds.del.split(':');if(confirm('Supprimer « '+S.items[b][i].label+' » ?')){S.items[b].splice(+i,1);save();render();}}
+});
+document.addEventListener('change',e=>{
+  if(e.target.dataset.time){const d=day(todayKey());d[e.target.dataset.time]=e.target.value||undefined;save();render();}
+});
+document.addEventListener('keydown',e=>{if(e.key==='Enter'&&e.target.dataset.addinput){document.querySelector(`[data-add="${e.target.dataset.addinput}"]`).click();}});
+
+document.getElementById('waterPlus').onclick=()=>{const d=day(todayKey());const was=success(todayKey());d.water=(d.water||0)+1;buzz();save();render();
+  if(d.water===S.settings.goal)toast('💧 Objectif eau atteint !');else if(!was&&success(todayKey()))toast('🌕 Journée bien lunée !');};
+document.getElementById('waterMinus').onclick=()=>{const d=day(todayKey());d.water=Math.max(0,(d.water||0)-1);save();render();};
+
+// réglages
+const sheet=document.getElementById('sheet'),bg=document.getElementById('sheetBg');
+const F={goal:'setGoal',glass:'setGlass',bed:'setBed',wake:'setWake',thresh:'setThresh'};
+document.getElementById('openSettings').onclick=()=>{for(const k in F)document.getElementById(F[k]).value=S.settings[k];sheet.classList.add('show');bg.style.display='block';};
+const close=()=>{sheet.classList.remove('show');bg.style.display='none';};
+document.getElementById('closeSettings').onclick=close;bg.onclick=close;
+for(const k in F)document.getElementById(F[k]).addEventListener('change',e=>{let v=e.target.value;if(['goal','glass','thresh'].includes(k))v=Math.max(1,+v||DEFAULT.settings[k]);S.settings[k]=v;save();render();});
+document.getElementById('exportBtn').onclick=async()=>{
+  const blob=new Blob([JSON.stringify(S,null,1)],{type:'application/json'}),name='bien-lune-'+keyOf(new Date())+'.json';
+  const file=new File([blob],name,{type:'application/json'});
+  try{if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:'Sauvegarde Bien Luné'});return;}}catch(e){if(e.name==='AbortError')return;}
+  const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=name;a.click();};
+document.getElementById('importBtn').onclick=()=>document.getElementById('importFile').click();
+document.getElementById('importFile').onchange=e=>{const f=e.target.files[0];if(!f)return;const r=new FileReader();
+  r.onload=()=>{try{const j=JSON.parse(r.result);if(!j.items||!j.days)throw 0;if(confirm('Remplacer les données actuelles par cette sauvegarde ?')){S=j;save();load();render();close();toast('Sauvegarde restaurée');}}catch(err){alert('Fichier non reconnu');}};r.readAsText(f);};
+
+load(); render();
+// rafraîchit le "moment" quand on revient sur l'appli
+document.addEventListener('visibilitychange',()=>{if(!document.hidden){openBlock=null;render();}});
+setInterval(()=>{if(!document.hidden)render();},5*60e3);
+if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+</script>
+</body>
+</html>
