@@ -239,6 +239,8 @@ nav .badge{position:absolute;top:4px;left:calc(50% + 6px);min-width:17px;height:
 .sal .body{flex:1;min-width:0}
 .toast{position:fixed;left:50%;bottom:calc(100px + var(--safe-b));transform:translate(-50%,14px);background:var(--ink);color:#fff;padding:11px 16px;border-radius:12px;font-size:13.5px;font-weight:520;z-index:60;opacity:0;pointer-events:none;transition:.25s;max-width:88vw;text-align:center;line-height:1.45}
 .toast.on{opacity:1;transform:translate(-50%,0)}
+.toast.on.act{pointer-events:auto}
+.toast .tb{background:none;border:0;color:#7fe0d0;font:inherit;font-weight:700;margin-left:10px;padding:2px 0;cursor:pointer}
 
 /* ===== habillage v14 : cartes douces, vert forêt, accent orange ===== */
 :root{
@@ -1017,7 +1019,62 @@ function capsTotal(){ return S.categories.filter(c=>c.pocket==="securite").reduc
 function syncSec(){ const tot=capsTotal(); if(!tot) return; const ca=S.defaults.coursesAccount||A0();
   S.defaults.securite=S.defaults.securite||{}; S.defaults.securite[ca]=tot;
   for(const ym in S.months) if(ym>=ymNow()){ const M=S.months[ym]; M.securite=M.securite||{}; M.securite[ca]=tot; } }
-function bumpCap(id,d){ const c=S.categories.find(x=>x.id===id); if(!c) return; c.budget=Math.max(0,(+c.budget||0)+d); syncSec(); refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
+/* ===== compensation automatique =====
+   Quand un plafond bouge, une autre enveloppe bouge en sens inverse : la marge du mois ne change pas.
+   On prend d'abord l'enveloppe prioritaire, puis celles où il reste le plus. On ne descend jamais
+   une enveloppe sous ce qui y est déjà dépensé. Retoucher une enveloppe que l'appli vient d'ajuster
+   ne relance pas de compensation : c'est toi qui corriges. */
+let lastComp=null;
+function compCfg(){ const k=S.defaults.comp=S.defaults.comp||{on:true,first:"c-divers"}; if(!S.categories.some(c=>c.id===k.first&&c.pocket==="securite")){ const f=S.categories.find(c=>c.pocket==="securite"); k.first=f?f.id:null; } return k; }
+function compOrder(srcId){ const C=calc(cur), first=compCfg().first;
+  return S.categories.filter(c=>c.pocket==="securite"&&c.id!==srcId)
+    .map(c=>({c,room:Math.max(0,(+c.budget||0)-(C.byCat[c.id]||0))}))
+    .sort((a,b)=>((b.c.id===first)-(a.c.id===first))||(b.room-a.room)); }
+function compensate(srcId,d){
+  if(!d) return;
+  const fresh=lastComp&&Date.now()-lastComp.t<120000;
+  if(fresh&&lastComp.moves[srcId]!=null){ lastComp.moves[srcId]+=d; lastComp.t=Date.now(); return; }
+  if(!compCfg().on) return;
+  if(!(fresh&&lastComp.src===srcId)) lastComp={src:srcId,moves:{},left:0};
+  lastComp.t=Date.now();
+  let need=d;
+  if(need>0){
+    /* on rend d'abord ce qui avait été repris dans cette même série */
+    for(const id in lastComp.moves){ if(need<=0) break; const m=lastComp.moves[id]; if(m>0){ const t=Math.min(need,m), c=cat(id); c.budget=(+c.budget||0)-t; lastComp.moves[id]-=t; need-=t; } }
+    for(const o of compOrder(srcId)){ if(need<=0) break; const t=Math.min(need,o.room); if(t>0){ o.c.budget=(+o.c.budget||0)-t; lastComp.moves[o.c.id]=(lastComp.moves[o.c.id]||0)-t; need-=t; } }
+    lastComp.left+=need;
+  } else {
+    let give=-need;
+    if(lastComp.left>0){ const t=Math.min(give,lastComp.left); lastComp.left-=t; give-=t; }
+    for(const id in lastComp.moves){ if(give<=0) break; const m=lastComp.moves[id]; if(m<0){ const t=Math.min(give,-m), c=cat(id); c.budget=(+c.budget||0)+t; lastComp.moves[id]+=t; give-=t; } }
+    const o=compOrder(srcId)[0];
+    if(give>0&&o){ o.c.budget=(+o.c.budget||0)+give; lastComp.moves[o.c.id]=(lastComp.moves[o.c.id]||0)+give; }
+  }
+  compToast();
+}
+function compToast(){
+  if(!lastComp) return;
+  const parts=Object.keys(lastComp.moves).filter(id=>Math.abs(lastComp.moves[id])>=0.005&&id!==lastComp.src)
+    .map(id=>`${esc(cat(id).name)} ${lastComp.moves[id]>0?"+":"−"}${eur0(Math.abs(lastComp.moves[id]))}`);
+  if(!parts.length&&!(lastComp.left>0.005)) return;
+  toast((parts.length?`Compensé : ${parts.join(", ")}`:"")+(lastComp.left>0.005?`${parts.length?"<br>":""}Plus de marge dans les autres enveloppes : ${eur0(lastComp.left)} pris sur l'épargne`:"")
+    +(parts.length?`<button class="tb" onclick="undoComp()">Annuler</button>`:""),6000);
+}
+function undoComp(){
+  if(!lastComp) return;
+  for(const id in lastComp.moves){ if(id===lastComp.src) continue; const c=cat(id); if(c) c.budget=Math.max(0,(+c.budget||0)-lastComp.moves[id]); }
+  lastComp=null; syncSec(); refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y);
+  toast("Compensation annulée : la marge du mois a changé");
+}
+function editComp(){
+  const k=compCfg(), cats=S.categories.filter(c=>c.pocket==="securite");
+  openSheet("Compensation automatique","Quand tu changes une enveloppe, l'appli ajuste une autre enveloppe dans l'autre sens pour que le reste du mois ne bouge pas. Elle commence par l'enveloppe prioritaire, puis prend celles où il reste le plus. Tu peux toujours retoucher ou annuler ce qu'elle a fait.",
+    [{k:"on",label:"Compensation",type:"seg",options:[{v:"1",t:"Activée"},{v:"0",t:"Désactivée"}]},
+     {k:"first",label:"Enveloppe prioritaire",type:"chips",options:cats.map(c=>({v:c.id,t:c.name}))}],
+    {on:k.on?"1":"0",first:k.first},
+    d=>{ k.on=d.on==="1"; if(d.first) k.first=d.first; lastComp=null; });
+}
+function bumpCap(id,d){ const c=S.categories.find(x=>x.id===id); if(!c) return; const old=+c.budget||0; c.budget=Math.max(0,old+d); compensate(id,c.budget-old); syncSec(); refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
 function bumpCourses(d){ const M=month(cur); M.courses=Math.max(0,(+M.courses||0)+d); if(cur>=ymNow()) S.defaults.courses=M.courses; refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
 function envRow(name,s,b,minus,plus,edit,sub){
   const lv=capLevel(s,b), pc=b>0?Math.min(100,s/b*100):0;
@@ -1109,6 +1166,7 @@ function vEnv(){
     <div class="sec"><span class="eyebrow">Enveloppes du mois</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(cats.reduce((t,c)=>t+(C.byCat[c.id]||0),0))} / ${eur0(caps)}</span></div>
     ${cats.map(c=>envRow(c.name,C.byCat[c.id]||0,+c.budget||0,`bumpCap('${c.id}',-1)`,`bumpCap('${c.id}',1)`,`editCategory('${c.id}')`,"")).join("")}
     <div class="hint">Alertes : jaune à 50 %, orange à 70 %, rouge en grand à 90 % et au dépassement. Les traits gris sur les barres marquent ces seuils.</div>
+    <div class="calc" style="margin-top:10px"><div class="l tap" onclick="editComp()" style="border-top:1px solid var(--line-soft)"><span class="n">Compensation automatique<small>${compCfg().on?`priorité : ${esc((cat(compCfg().first)||{}).name||"aucune")}, la marge du mois reste la même`:"désactivée : changer une enveloppe change la marge"}</small></span><span class="a" style="color:var(--teal)">${compCfg().on?"Activée":"Off"} ›</span></div></div>
     <button class="btn ghost sm" style="margin-top:10px" onclick="editCategory()">+ Nouvelle enveloppe</button>
   </div>
   <div class="card">
@@ -1738,7 +1796,7 @@ function openSheet(title,lead,fields,values,onSave,onDelete,delLabel){
   return sheetBody;
 }
 function accOpts(){ return S.accounts.map(a=>({v:a.id,t:a.name,dot:accColor(a.id)})); }
-function toast(msg){ const t=document.getElementById("toast"); t.innerHTML=msg; t.classList.add("on"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("on"),3600); }
+function toast(msg,ms){ const t=document.getElementById("toast"); t.innerHTML=msg; t.classList.toggle("act",!!t.querySelector("button")); t.classList.add("on"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("on","act"),ms||3600); }
 function go(t){ if(t!=="fil"){ filDay=null; filCat=null; } tab=t; render(); }
 
 /* ================= actions : le fil ================= */
@@ -2089,7 +2147,7 @@ function editCategory(id){
      {k:"refund",label:"Remboursable ?",type:"seg",options:[{v:"0",t:"Non"},{v:"1",t:"Oui (mutuelle, frais)"}]},
      {k:"budget",label:"Plafond par mois (vide = aucun)",type:"money",ph:"aucun"}],
     it?{name:it.name,pocket:it.pocket,refund:it.refund?"1":"0",budget:it.budget||""}:{name:"",pocket:"securite",refund:"0",budget:""},
-    d=>{ if(!d.name.trim()){toast("Il manque le nom");return false;} const o={name:d.name.trim(),pocket:d.pocket,refund:d.refund==="1",budget:num(d.budget)}; setTimeout(()=>{ syncSec(); persist(); render(); },0); if(it) Object.assign(it,o); else S.categories.push(Object.assign({id:uid()},o)); },
+    d=>{ if(!d.name.trim()){toast("Il manque le nom");return false;} const o={name:d.name.trim(),pocket:d.pocket,refund:d.refund==="1",budget:num(d.budget)}; setTimeout(()=>{ syncSec(); refreshProposals(); persist(); render(); },0); if(it){ const old=it.pocket==="securite"?(+it.budget||0):0; Object.assign(it,o); if(it.pocket==="securite") compensate(it.id,(+it.budget||0)-old); } else S.categories.push(Object.assign({id:uid()},o)); },
     (it&&S.categories.length>1)?()=>{ const fb=S.categories.find(c=>c.id!==id).id; for(const ym in S.months) S.months[ym].ops.forEach(o=>{ if(o.category===id) o.category=fb; }); S.categories=S.categories.filter(c=>c.id!==id); }:null);
 }
 function editCharge(id){
