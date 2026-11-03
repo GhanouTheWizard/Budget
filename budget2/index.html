@@ -528,12 +528,12 @@ function weeksCard(C,ym){
   return `<div class="card"><div class="sec"><span class="eyebrow">Courses semaine par semaine</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(C.courses/W.length)} / semaine en moyenne</span></div>
   ${W.map(w=>{ const lv=capLevel(w.s,w.b), pc=w.b>0?Math.min(100,w.s/w.b*100):0, d=w.s-w.b;
     return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${w.sat} ${mo}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${w.from} au ${w.to} ${mo}</small></span><span style="display:flex;align-items:center;gap:6px;flex:none">
-      <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},-5)" aria-label="Moins">−</button>
+      <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},-1)" aria-label="Moins">−</button>
       <span class="a" style="min-width:64px;text-align:center" onclick="editWeek(${w.i})">${eur0(w.b)}</span>
-      <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},5)" aria-label="Plus">+</button></span></div>
+      <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},1)" aria-label="Plus">+</button></span></div>
     <div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div>
     <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(w.s)} dépensés · ${d>0.5?`<b style="color:${LV_COL[3]||"#c33"}">${eur0(d)} de trop</b>`:`reste ${eur0(-d)}`}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(pc)+" %"}</span></div></div>`; }).join("")}
-  <div class="hint">Avec − et + tu bouges une semaine de 5 € ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Les achats faits avant le premier samedi comptent dans la première semaine.${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
+  <div class="hint">Avec − et + tu bouges une semaine d'un euro ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Les achats faits avant le premier samedi comptent dans la première semaine.${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
 }
 function coursesSub(C,ym){
   if(!(C.courses>0)) return "";
