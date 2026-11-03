@@ -490,26 +490,55 @@ function coursesWeek(C,ym){
 }
 /* une enveloppe par semaine de courses (du samedi au vendredi) */
 function coursesWeeks(C,ym){
-  const sats=saturdays(ym), n=sats.length||1, wb=C.courses/n, dim=daysIn(ym), M=month(ym);
+  const sats=saturdays(ym), dim=daysIn(ym), M=month(ym), wb=weekBudgets(ym,C.courses);
   const t=ym===ymNow()?new Date().getDate():(ym<ymNow()?dim+1:0);
   return sats.map((d,i)=>{ const from=i===0?1:d, to=i<sats.length-1?sats[i+1]-1:dim; let sp=0;
     M.ops.forEach(o=>{ const day=o.day||1; if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&day>=from&&day<=to) sp+=Math.max(0,(+o.amount||0)-(o._refunded||0)); });
-    return {i,sat:d,from,to,b:wb,s:sp,now:t>=from&&t<=to,past:t>to}; });
+    return {i,sat:d,from,to,b:wb[i],s:sp,now:t>=from&&t<=to,past:t>to}; });
 }
+/* budget de chaque semaine : part égale + ajustements (M.wkAdj), le total reste celui du mois */
+function weekBudgets(ym,total){
+  const n=saturdays(ym).length||1, base=total/n, adj=(month(ym).wkAdj)||[];
+  const b=[]; for(let i=0;i<n;i++) b.push(Math.max(0,base+(+adj[i]||0)));
+  const sum=b.reduce((a,x)=>a+x,0); if(sum>0.005&&Math.abs(sum-total)>0.005) return b.map(x=>x*total/sum);
+  return b;
+}
+/* change la semaine i de d euros et compense sur les semaines suivantes (ou précédentes si c'est la dernière) */
+function shiftWeek(i,d){
+  const M=month(cur), n=saturdays(cur).length; if(n<2){ toast("Un seul samedi ce mois-ci : modifie l'enveloppe du mois"); return; }
+  const b=weekBudgets(cur,+M.courses||0);
+  if(d<0) d=-Math.min(-d,b[i]);
+  let rest=d; const order=[]; for(let k=i+1;k<n;k++) order.push(k); for(let k=i-1;k>=0;k--) order.push(k);
+  b[i]+=d;
+  for(const k of order){ if(Math.abs(rest)<0.005) break; const take=rest>0?Math.min(rest,b[k]):rest; b[k]-=take; rest-=take; }
+  if(Math.abs(rest)>0.005) b[i]-=rest;   // plus rien à prendre ailleurs
+  const base=(+M.courses||0)/n; M.wkAdj=b.map(x=>Math.round((x-base)*100)/100);
+  persist(); const y=scrollY; render(); scrollTo(0,y);
+}
+function editWeek(i){
+  const M=month(cur), sats=saturdays(cur), b=weekBudgets(cur,+M.courses||0);
+  openSheet("Courses du samedi "+sats[i],"Ce que tu ajoutes ou enlèves ici est repris sur la semaine d'après, pour que le total reste celui du mois ("+eur0(+M.courses||0)+").",
+    [{k:"amount",label:"Budget de la semaine",type:"money"}],{amount:Math.round(b[i]*100)/100},
+    d=>{ setTimeout(()=>shiftWeek(i,num(d.amount)-b[i]),0); });
+}
+function resetWeeks(){ delete month(cur).wkAdj; persist(); const y=scrollY; render(); scrollTo(0,y); }
 function weeksCard(C,ym){
   if(!(C.courses>0)) return "";
   const W=coursesWeeks(C,ym), mo=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."][ymParts(ym).m-1];
-  return `<div class="card"><div class="sec"><span class="eyebrow">Courses semaine par semaine</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(W[0].b)} / semaine</span></div>
+  return `<div class="card"><div class="sec"><span class="eyebrow">Courses semaine par semaine</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(C.courses/W.length)} / semaine en moyenne</span></div>
   ${W.map(w=>{ const lv=capLevel(w.s,w.b), pc=w.b>0?Math.min(100,w.s/w.b*100):0, d=w.s-w.b;
-    return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${w.sat} ${mo}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${w.from} au ${w.to} ${mo}</small></span><span class="a">${eur0(w.b)}</span></div>
+    return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${w.sat} ${mo}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${w.from} au ${w.to} ${mo}</small></span><span style="display:flex;align-items:center;gap:6px;flex:none">
+      <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},-5)" aria-label="Moins">−</button>
+      <span class="a" style="min-width:64px;text-align:center" onclick="editWeek(${w.i})">${eur0(w.b)}</span>
+      <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},5)" aria-label="Plus">+</button></span></div>
     <div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div>
     <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(w.s)} dépensés · ${d>0.5?`<b style="color:${LV_COL[3]||"#c33"}">${eur0(d)} de trop</b>`:`reste ${eur0(-d)}`}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(pc)+" %"}</span></div></div>`; }).join("")}
-  <div class="hint">L'enveloppe du mois est partagée en parts égales entre les samedis. Les achats faits avant le premier samedi comptent dans la première semaine.</div></div>`;
+  <div class="hint">Avec − et + tu bouges une semaine de 5 € ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Les achats faits avant le premier samedi comptent dans la première semaine.${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
 }
 function coursesSub(C,ym){
   if(!(C.courses>0)) return "";
   const w=coursesWeek(C,ym);
-  let s=`${w.n} samedis ce mois · ${eur0(w.weekly)} par semaine`;
+  let s=`${w.n} samedis ce mois · ${eur0(w.weekly)} par semaine en moyenne`;
   if(w.cur){
     if(w.left>0) s+=`<br>${w.next===new Date().getDate()?"Aujourd'hui":"Samedi "+w.next} : ${eur0(w.perLeft)} par semaine sur les ${w.left} samedi${w.left>1?"s":""} restant${w.left>1?"s":""}`;
     if(w.wkSpent>0.5) s+=`<br>Cette semaine : ${eur0(w.wkSpent)} dépensés`;
