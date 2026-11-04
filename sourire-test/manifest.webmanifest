@@ -1,0 +1,17 @@
+{
+  "name": "Sou'Rire (essai)",
+  "short_name": "Sou'Rire essai",
+  "description": "Le mois comme un rituel : départ, répartition sur les comptes, enveloppes, épargne.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#E9EEEC",
+  "theme_color": "#1B2430",
+  "lang": "fr",
+  "icons": [
+    { "src": "icon-180.png?v=5", "sizes": "180x180", "type": "image/png" },
+    { "src": "icon-512.png?v=5", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png?v=5", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
