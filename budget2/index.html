@@ -10,7 +10,6 @@
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="Sou'Rire">
 <link rel="apple-touch-icon" href="icon-180.png?v=5">
-<script>/* lien de mot de passe oublié de la version d'essai : renvoyé vers elle */(function(){try{var h=location.hash||"";if(/access_token=|error_code=/.test(h))location.replace(location.pathname.replace(/budget2\/(index\.html)?$/,"sourire-test/")+h);}catch(e){}})();</script>
 <style>
 :root{
   --ink:#1B2430; --ink-2:#465364; --ink-3:#7E8B99;
@@ -369,6 +368,39 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 .toast{bottom:calc(170px + var(--safe-b))}
 @media (prefers-color-scheme:dark){ :root:not([data-theme="light"]){ } }
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
+
+/* ===== page d'accueil (connexion) ===== */
+body.gated{overflow:hidden}
+#gate{position:fixed;inset:0;z-index:200;display:none;overflow-y:auto;-webkit-overflow-scrolling:touch;
+  background:radial-gradient(120% 60% at 50% 0%,var(--teal-soft) 0%,var(--panel) 60%);}
+#gate.on{display:block}
+#gate .g-wrap{max-width:420px;margin:0 auto;padding:calc(env(safe-area-inset-top,0px) + 40px) 18px calc(env(safe-area-inset-bottom,0px) + 28px)}
+#gate .g-top{text-align:center;margin-bottom:22px}
+#gate .g-top img{width:76px;height:76px;border-radius:22px;box-shadow:var(--shadow)}
+#gate .g-name{font-size:30px;font-weight:750;letter-spacing:-.02em;color:var(--forest);margin-top:10px}
+#gate .g-tag{color:var(--ink-2);font-size:15px;margin-top:2px}
+#gate .g-badge{display:inline-block;margin-top:10px;font-size:11px;font-weight:650;letter-spacing:.06em;text-transform:uppercase;color:#8A5A12;background:var(--orange-soft);padding:4px 10px;border-radius:99px}
+#gate .g-card{background:var(--surface);border-radius:24px;box-shadow:var(--shadow);padding:18px}
+#gate .g-tabs{display:flex;background:var(--panel);border-radius:14px;padding:4px;margin-bottom:14px}
+#gate .g-tabs button{flex:1;padding:10px 6px;border-radius:11px;font-weight:600;font-size:15px;color:var(--ink-2)}
+#gate .g-tabs button.on{background:var(--surface);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.08)}
+#gate h2{margin:2px 0 6px;font-size:21px}
+#gate .g-p{color:var(--ink-2);font-size:14.5px;margin:0 0 14px}
+#gate .g-f{display:block;margin-bottom:12px}
+#gate .g-f>span:first-child{display:block;font-size:13px;font-weight:600;color:var(--ink-2);margin-bottom:5px}
+#gate .g-in{display:flex;align-items:center;border:1.5px solid var(--line);border-radius:14px;background:var(--surface)}
+#gate .g-in:focus-within{border-color:var(--teal)}
+#gate .g-in input{flex:1;min-width:0;border:0;outline:0;background:none;padding:13px 14px;font-size:16px}
+#gate .g-eye{padding:0 14px;font-size:13px;font-weight:600;color:var(--teal)}
+#gate .g-check{display:flex;align-items:center;gap:10px;margin:4px 0 14px;font-size:15px}
+#gate .g-check input{width:20px;height:20px;accent-color:var(--teal);margin:0}
+#gate .g-err{display:none;background:var(--rose-soft);color:#9A2F1F;border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+#gate .g-msg{background:var(--teal-soft);color:var(--forest);border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px}
+#gate .g-go{width:100%;background:var(--forest);color:#fff;font-weight:650;font-size:16px;padding:15px;border-radius:14px}
+#gate .g-go.wait{opacity:.55}
+#gate .g-link{display:block;margin:14px auto 2px;color:var(--teal);font-weight:600;font-size:14.5px}
+#gate .g-foot{text-align:center;color:var(--ink-3);font-size:12.5px;margin-top:18px}
+#gate .g-foot a{color:var(--teal)}
 </style>
 </head>
 <body>
@@ -400,7 +432,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v36 · 4 novembre 2026";
+const APP_VERSION="v37 · 4 novembre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -1397,7 +1429,6 @@ function vToday(){
       </div>
       <button class="btn teal" style="margin-bottom:8px" onclick="addSalary()">+ Ajouter le salaire</button>
       <button class="btn" onclick="go('mois')">Faire le départ du mois</button>
-      ${Sync.available()&&!Sync.on?`<button class="btn ghost" style="margin-top:8px" onclick="editSync('join')">Rejoindre le budget de l'autre téléphone</button>`:""}
       ${S.recurring.length?"":`<div class="hint">Pense aussi à déclarer les prélèvements récurrents dans les réglages (icône ⚙ en haut), ils se reporteront chaque mois.</div>`}
     </div>`;
   }
@@ -1766,7 +1797,7 @@ function vReglages(){
     <div class="hint" style="margin:6px 0 12px">Efface tout, sans retour possible.</div>
     <button class="btn sm danger" onclick="wipe()">Tout effacer</button>
   </div>
-  <div class="hint" style="text-align:center;padding:4px 0 10px">Sou'Rire · ${APP_VERSION} · ${Sync.on?"synchronisé, chiffré sur le téléphone":"données locales · aucun serveur"}</div>`;
+  <div class="hint" style="text-align:center;padding:4px 0 10px">Sou'Rire · ${APP_VERSION} · ${Sync.on?"synchronisé avec le foyer":"non connecté"}</div>`;
 }
 
 /* ================= feuille modale ================= */
@@ -2318,59 +2349,171 @@ async function supabaseBackend(hid){
   };
 }
 
+/* ================= comptes (Supabase Auth) : version d'essai =================
+   Un compte par personne (e-mail + mot de passe), un code de foyer pour se retrouver à plusieurs.
+   « Rester connecté » : la session est gardée sur l'appareil ; sinon elle disparaît à la fermeture de l'appli. */
+const AUTH_KEY="budget2.auth", SYNC2_KEY="budget2.sync2", BASE2="budget2.syncbase2";
+function appUrl(){ return location.origin+location.pathname.replace(/index\.html$/,""); }
+function authMsg(j,st){
+  const c=j&&(j.error_code||j.code||j.error)||"", m=String(j&&(j.msg||j.message||j.error_description)||"");
+  const T={invalid_credentials:"E-mail ou mot de passe incorrect",invalid_grant:"E-mail ou mot de passe incorrect",email_not_confirmed:"Adresse pas encore confirmée",
+    user_already_exists:"Un compte existe déjà avec cette adresse : connecte-toi",email_exists:"Un compte existe déjà avec cette adresse : connecte-toi",
+    weak_password:"Mot de passe trop faible : 8 caractères minimum",over_email_send_rate_limit:"Trop d'e-mails envoyés, réessaie dans une heure",
+    over_request_rate_limit:"Trop d'essais, patiente quelques minutes",same_password:"C'est déjà ton mot de passe actuel",
+    validation_failed:"Adresse e-mail invalide",email_address_invalid:"Adresse e-mail invalide",signup_disabled:"Les inscriptions sont fermées"};
+  if(T[c]&&!(c==="invalid_grant"&&/confirm/i.test(m))) return T[c];
+  if(/not confirmed/i.test(m)) return T.email_not_confirmed;
+  if(/invalid login/i.test(m)) return T.invalid_credentials;
+  if(/already registered/i.test(m)) return T.user_already_exists;
+  if(/password/i.test(m)&&/characters|least/i.test(m)) return T.weak_password;
+  return m||("erreur "+st);
+}
+const Auth={
+  s:null, remember:true,
+  load(){ this.s=null;
+    try{ const a=localStorage.getItem(AUTH_KEY); if(a){ this.s=JSON.parse(a); this.remember=true; return; } }catch(e){}
+    try{ const b=sessionStorage.getItem(AUTH_KEY); if(b){ this.s=JSON.parse(b); this.remember=false; } }catch(e){} },
+  save(){ const v=this.s?JSON.stringify(this.s):null;
+    try{ if(v&&this.remember) localStorage.setItem(AUTH_KEY,v); else localStorage.removeItem(AUTH_KEY); }catch(e){}
+    try{ if(v&&!this.remember) sessionStorage.setItem(AUTH_KEY,v); else sessionStorage.removeItem(AUTH_KEY); }catch(e){} },
+  get on(){ return !!(this.s&&this.s.rt); },
+  get email(){ return (this.s&&this.s.email)||""; },
+  keep(d){ const o=this.s||{}; this.s={at:d.access_token,rt:d.refresh_token,exp:Date.now()+(+d.expires_in||3600)*1000,
+    email:(d.user&&d.user.email)||o.email||"",uid:(d.user&&d.user.id)||o.uid||""}; this.save(); },
+  async call(path,body,opt){ opt=opt||{};
+    const h={"apikey":SB.key,"Content-Type":"application/json"}; if(opt.token) h.Authorization="Bearer "+opt.token;
+    let r; try{ r=await fetch(SB.url+"/auth/v1/"+path,{method:opt.method||"POST",cache:"no-store",headers:h,body:body?JSON.stringify(body):undefined}); }
+    catch(e){ throw new Error("Pas de réseau"); }
+    let j=null; try{ j=await r.json(); }catch(e){}
+    if(!r.ok){ const e=new Error(authMsg(j,r.status)); e.status=r.status; throw e; }
+    return j; },
+  /* inscription : l'adresse est confirmée d'office, on se connecte tout de suite */
+  async signUp(email,pass,nom){
+    const j=await this.call("signup?redirect_to="+encodeURIComponent(appUrl()),{email,password:pass,data:{nom}});
+    if(j&&j.access_token){ this.keep(j); return; }
+    await this.signIn(email,pass); },
+  async signIn(email,pass){ this.keep(await this.call("token?grant_type=password",{email,password:pass})); },
+  async refresh(){ if(!this.on) throw new Error("NON_CONNECTE");
+    try{ this.keep(await this.call("token?grant_type=refresh_token",{refresh_token:this.s.rt})); }
+    catch(e){ if(e.status===400||e.status===401){ this.s=null; this.save(); Sync.cut(); Gate.show("in","Session expirée, reconnecte-toi"); } throw e; } },
+  async token(){ if(!this.on) throw new Error("NON_CONNECTE"); if(!this.s.at||Date.now()>this.s.exp-60000) await this.refresh(); return this.s.at; },
+  async recover(email){ await this.call("recover?redirect_to="+encodeURIComponent(appUrl()),{email}); },
+  async setPassword(p){ await this.call("user",{password:p},{method:"PUT",token:await this.token()}); },
+  async whoami(){ try{ const u=await this.call("user",null,{method:"GET",token:await this.token()}); if(u&&this.s){ this.s.email=u.email||this.s.email; this.s.uid=u.id||this.s.uid; this.save(); } }catch(e){} },
+  async signOut(){ try{ if(this.on) await this.call("logout",null,{token:await this.token()}); }catch(e){} this.s=null; this.save(); },
+  /* retour d'un lien reçu par e-mail (mot de passe oublié) */
+  fromLink(){
+    const h=location.hash||""; if(h.length<2) return null;
+    const p=new URLSearchParams(h.slice(1));
+    if(!p.get("access_token")&&!p.get("error")&&!p.get("error_code")) return null;
+    try{ history.replaceState(null,"",location.pathname+location.search); }catch(e){}
+    if(p.get("error")||p.get("error_code")) return {error:p.get("error_code")||p.get("error")};
+    this.remember=true;
+    this.s={at:p.get("access_token"),rt:p.get("refresh_token"),exp:Date.now()+(+p.get("expires_in")||3600)*1000,email:"",uid:""}; this.save();
+    return {type:p.get("type")||""};
+  }
+};
+
+/* appels à la base, avec le jeton du compte connecté */
+function rpcMsg(m){ const T={LIMITE_ATTEINTE:"Les 3 comptes sont déjà pris",CODE_INCONNU:"Code inconnu, vérifie-le",DEJA_MEMBRE:"Ce compte fait déjà partie d'un foyer",
+  NON_CONNECTE:"Connecte-toi d'abord",TROP_GROS:"Données trop volumineuses",PAS_DE_FOYER:"Ce compte n'a pas encore de foyer"};
+  for(const k in T) if(String(m).indexOf(k)>=0) return T[k]; return m; }
+async function rpc(fn,args,again){
+  let r; try{ r=await fetch(SB.url+"/rest/v1/rpc/"+fn,{method:"POST",cache:"no-store",
+    headers:{"apikey":SB.key,"Authorization":"Bearer "+await Auth.token(),"Content-Type":"application/json"},body:JSON.stringify(args||{})}); }
+  catch(e){ throw new Error("Pas de réseau"); }
+  if(r.status===401&&!again){ await Auth.refresh(); return rpc(fn,args,true); }
+  let j=null; try{ j=await r.json(); }catch(e){}
+  if(!r.ok) throw new Error(rpcMsg((j&&j.message)||("serveur "+r.status)));
+  return j;
+}
+async function remoteGet(){ const rows=await rpc("budget_get"); return rows&&rows.length?rows[0]:null; }
+
+/* ancien partage par mot de passe commun : relu une dernière fois pour ne rien perdre, puis mis de côté (pas effacé) */
+function oldCfg(){ try{ const c=JSON.parse(localStorage.getItem(SYNC_KEY)||"null"); return c&&c.hid&&c.key?c:null; }catch(e){ return null; } }
+function oldBase(){ try{ return JSON.parse(localStorage.getItem(SYNC_BASE)||"null"); }catch(e){ return null; } }
+async function oldRemote(c){ try{ const d=await (await supabaseBackend(c.hid)).get(); return d?canon(await openData(d,c.key)):null; }catch(e){ return null; } }
+function retireOld(){ const c=oldCfg(); if(!c) return;
+  try{ localStorage.setItem("budget2.sync.ancien",JSON.stringify(c)); localStorage.removeItem(SYNC_KEY); localStorage.removeItem(SYNC_BASE); }catch(e){} }
+
 const Sync={
-  cfg:null, be:null, state:"off", last:null, err:"", busy:false, again:false, held:null, unsub:null, t:null,
-  get on(){ return !!(this.cfg&&this.cfg.hid); },
-  available(){ return !!(SB.url||window.__mockBackend) && !!(window.crypto&&crypto.subtle); },
-  loadCfg(){ try{ this.cfg=JSON.parse(localStorage.getItem(SYNC_KEY)||"null"); }catch(e){ this.cfg=null; } },
-  saveCfg(){ try{ if(this.cfg) localStorage.setItem(SYNC_KEY,JSON.stringify(this.cfg)); else localStorage.removeItem(SYNC_KEY); }catch(e){} },
-  base(){ try{ return JSON.parse(localStorage.getItem(SYNC_BASE)||"null"); }catch(e){ return null; } },
-  setBase(b,v){ try{ localStorage.setItem(SYNC_BASE,JSON.stringify(b)); }catch(e){} this.cfg.ver=v; this.saveCfg(); },
-  backend(hid){ return window.__mockBackend?window.__mockBackend(hid):supabaseBackend(hid); },
+  cfg:null, info:null, state:"off", last:null, err:"", busy:false, again:false, held:null, t:null, stopPoll:null, quiet:false,
+  get on(){ return Auth.on&&!!(this.cfg&&this.cfg.joined); },
+  available(){ return !!(SB.url&&window.fetch); },
+  loadCfg(){ try{ this.cfg=JSON.parse(localStorage.getItem(SYNC2_KEY)||"null"); }catch(e){ this.cfg=null; }
+    if(!this.cfg){ const o=oldCfg(); let n=(o&&o.name)||""; try{ n=n||localStorage.getItem(NAME_KEY)||""; }catch(e){} this.cfg={dev:uid()+uid(),name:n,ver:0,joined:false}; } },
+  saveCfg(){ try{ localStorage.setItem(SYNC2_KEY,JSON.stringify(this.cfg)); }catch(e){} },
+  base(){ try{ return JSON.parse(localStorage.getItem(BASE2)||"null"); }catch(e){ return null; } },
+  setBase(b,v){ try{ localStorage.setItem(BASE2,JSON.stringify(b)); }catch(e){} this.cfg.ver=v; this.saveCfg(); },
   status(s,e){ this.state=s; if(e!==undefined) this.err=e; if(s==="ok") this.last=Date.now(); paintSync(); },
-  fail(e){ console.warn(e); this.status(navigator.onLine===false?"offline":"error",String(e&&e.message||e)); },
+  fail(e){ console.warn(e); this.status(navigator.onLine===false||/fetch|réseau|network/i.test(String(e&&e.message))?"offline":"error",String(e&&e.message||e)); },
+  stop(){ if(this.stopPoll) this.stopPoll(); this.stopPoll=null; },
+  cut(){ this.stop(); this.cfg.joined=false; this.cfg.ver=0; this.info=null; this.saveCfg(); try{ localStorage.removeItem(BASE2); }catch(e){} this.status("off",""); },
 
+  /* renvoie "ok" (foyer chargé), "nofoyer" (compte sans foyer) ou "offline" */
   async start(){
-    this.loadCfg(); if(!this.on||!this.available()) return;
-    try{ this.status("connect"); this.be=await this.backend(this.cfg.hid);
-      if(this.unsub) this.unsub(); this.unsub=this.be.listen(d=>this.onRemote(d));
-      await this.push();
-    }catch(e){ this.fail(e); }
+    if(!this.cfg) this.loadCfg(); if(!Auth.on){ this.status("off"); return "nologin"; }
+    try{
+      this.status("connect");
+      const info=await rpc("budget_info"); this.info=info;
+      if(!info){ this.cut(); return "nofoyer"; }
+      let fresh=false;
+      if(!this.cfg.joined||!this.base()){ fresh=true; this.cfg.joined=true; this.saveCfg(); const d=await remoteGet(); if(d) await this.adopt(d); }
+      this.listen(); await this.push(); render();
+      return fresh?"fresh":"ok";
+    }catch(e){ this.fail(e); return this.cfg.joined?"ok":"offline"; }
   },
-  /* premier téléphone : on envoie ; téléphone qui rejoint : il reprend les données du foyer */
-  async join(pass,name,mode){
-    const sec=await deriveSecrets(pass);
-    this.cfg={hid:sec.hid,key:sec.key,name:(name||"").trim(),dev:uid()+uid(),ver:0}; 
-    const be=await this.backend(sec.hid); const doc=await be.get(); let created=false;
-    if(!doc&&mode==="join"){ this.cfg=null; throw new Error("aucun budget partagé avec ce mot de passe. Vérifie-le, ou choisis « Premier téléphone » sur le téléphone qui a les données"); }
-    if(doc){
-      let remote; try{ remote=await openData(doc,sec.key); }catch(e){ this.cfg=null; throw new Error("Mot de passe différent de celui du foyer"); }
-      try{ localStorage.setItem("budget2.avant-synchro",JSON.stringify(S)); }catch(e){}
-      this.applyState(remote); this.saveCfg(); this.setBase(canon(S),doc.v||0);
-    } else {
-      const local=canon(S), sealed=await sealData(local,sec.key);
-      if(!await be.cas(0,Object.assign({v:1,by:this.cfg.dev},sealed))) throw new Error("Réessaie dans un instant");
-      this.saveCfg(); this.setBase(local,1); created=true;
-    }
-    this.be=be; if(this.unsub) this.unsub(); this.unsub=be.listen(d=>this.onRemote(d)); this.status("ok");
-    return created;
+  async adopt(d){
+    const local=canon(S), remote=canon(d.data||{}), ob=oldCfg()?oldBase():null;
+    try{ localStorage.setItem("budget2.avant-comptes",JSON.stringify(S)); }catch(e){}
+    const next=ob?merge3(ob,local,remote):remote;
+    this.setBase(remote,d.v||0); this.applyState(next,true); retireOld();
+    if(!jeq(next,remote)) this.schedule(); },
+  async create(nom){
+    let local=canon(S); const oc=oldCfg();
+    if(oc){ const rem=await oldRemote(oc); if(rem) local=merge3(oldBase()||{},local,rem); }
+    const code=await rpc("budget_creer",{p_nom:nom||"",p_data:local,p_by:this.cfg.dev});
+    this.cfg.joined=true; if(nom) this.cfg.name=nom; this.setBase(local,1); this.applyState(local,true);
+    retireOld(); this.info=await rpc("budget_info"); this.listen(); this.status("ok");
+    return code;
   },
-  leave(){ if(this.unsub) this.unsub(); this.unsub=null; this.be=null; this.cfg=null; this.saveCfg(); try{ localStorage.removeItem(SYNC_BASE); }catch(e){} this.status("off",""); },
+  async join(code,nom){
+    await rpc("budget_rejoindre",{p_code:code,p_nom:nom||""});
+    this.cfg.joined=true; if(nom) this.cfg.name=nom; this.saveCfg();
+    const d=await remoteGet(); if(d) await this.adopt(d);
+    this.info=await rpc("budget_info"); this.listen(); this.status("ok");
+  },
+  /* remplace le budget du foyer par une copie des données actuelles de Sou'Rire */
+  async replaceWith(data){
+    for(let i=0;i<4;i++){ const d=await remoteGet(), sv=d?(d.v||0):0;
+      if(await rpc("budget_cas",{p_expected:sv,p_data:data,p_by:this.cfg.dev})){ this.setBase(data,sv+1); this.applyState(data,true); this.status("ok"); return; } }
+    throw new Error("Réessaie dans un instant");
+  },
+  async newCode(){ const c=await rpc("budget_changer_code"); this.info=await rpc("budget_info"); return c; },
+  async logout(){ this.stop(); await Auth.signOut(); this.cut(); },
 
-  schedule(){ if(!this.on||!this.be) return; clearTimeout(this.t); this.t=setTimeout(()=>this.push(),700); },
+  listen(){ this.stop(); let stop=false, t=null;
+    const tick=async()=>{ if(stop) return;
+      if(document.visibilityState==="visible"&&this.on){ try{ const v=await rpc("budget_ver");
+        if(v===null){ this.cut(); Gate.show("foyer","Ce compte ne fait plus partie du foyer"); return; }
+        if(v>(this.cfg.ver||0)){ const d=await remoteGet(); if(d) await this.onRemote(d); }
+        if(this.state==="offline"||this.state==="error") this.status("ok"); }catch(e){ this.fail(e); } }
+      t=setTimeout(tick,4000); };
+    t=setTimeout(tick,1500); this.stopPoll=()=>{ stop=true; clearTimeout(t); }; },
+
+  schedule(){ if(!this.on) return; clearTimeout(this.t); this.t=setTimeout(()=>this.push(),700); },
   async push(){
-    if(!this.on||!this.be) return; if(this.busy){ this.again=true; return; }
+    if(!this.on) return; if(this.busy){ this.again=true; return; }
     this.busy=true;
     try{
       for(let i=0;i<6;i++){
         const base=this.base(), local=canon(S), ver=this.cfg.ver||0;
-        if(jeq(local,base)){ const d=await this.be.get(); if(!d||(d.v||0)===ver){ this.status("ok"); break; } await this.onRemote(d,true); continue; }
+        const d=await remoteGet(); if(!d){ this.cut(); Gate.show("foyer","Ce compte ne fait plus partie du foyer"); break; }
+        const sv=d.v||0;
+        if(jeq(local,base)){ if(sv===ver){ this.status("ok"); break; } await this.onRemote(d,true); continue; }
         this.status("sending");
-        const d=await this.be.get(), sv=d?(d.v||0):0;
-        let next=local;
-        if(d&&sv!==ver){ const remote=await openData(d,this.cfg.key); next=merge3(base||{},local,remote); }
-        const sealed=await sealData(next,this.cfg.key);
-        if(await this.be.cas(sv,Object.assign({v:sv+1,by:this.cfg.dev},sealed))){
+        const next=sv!==ver?merge3(base||{},local,canon(d.data||{})):local;
+        if(await rpc("budget_cas",{p_expected:sv,p_data:next,p_by:this.cfg.dev})){
           if(!jeq(next,local)) this.applyState(next,true);
           this.setBase(next,sv+1); this.status("ok"); break;
         }
@@ -2378,12 +2521,11 @@ const Sync={
     }catch(e){ this.fail(e); }
     this.busy=false; if(this.again){ this.again=false; this.schedule(); }
   },
-  /* changement venu de l'autre téléphone */
   async onRemote(d,inPush){
-    if(!this.on||(d.v||0)<=(this.cfg.ver||0)||d.by===this.cfg.dev) return;
-    if(sheet.classList.contains("open")){ this.held=d; return; }   // on attend la fin de la saisie en cours
-    let remote; try{ remote=await openData(d,this.cfg.key); }catch(e){ this.status("error","Données illisibles : mot de passe différent ?"); return; }
-    const base=this.base(), local=canon(S), dirty=!jeq(local,base);
+    if(!this.on||(d.v||0)<=(this.cfg.ver||0)) return;
+    if(d.by===this.cfg.dev){ this.setBase(canon(d.data||{}),d.v||0); return; }
+    if(sheet.classList.contains("open")){ this.held=d; return; }
+    const remote=canon(d.data||{}), base=this.base(), local=canon(S), dirty=!jeq(local,base);
     const next=dirty?merge3(base||{},local,remote):remote;
     this.setBase(remote,d.v||0); this.applyState(next,true);
     if(dirty&&!inPush) this.schedule(); else if(!dirty) this.status("ok");
@@ -2401,26 +2543,153 @@ function paintSync(){
   const st=document.getElementById("syncState"); if(st) st.innerHTML=syncLabel();
 }
 function syncLabel(){
-  if(!Sync.on) return "Désactivée sur ce téléphone";
+  if(!Auth.on) return "Non connecté";
+  if(!Sync.on) return Sync.state==="connect"?"Vérification du compte…":"Foyer à créer ou à rejoindre";
   const h=Sync.last?new Date(Sync.last).toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit"}):"";
   return ({ok:"À jour"+(h?" · "+h:""),sending:"Envoi en cours…",connect:"Connexion…",offline:"Hors ligne, les changements partiront au retour du réseau",error:"Erreur : "+esc(Sync.err||"inconnue")})[Sync.state]||"…";
 }
 function syncCard(){
-  if(!Sync.available()) return "";
-  if(!Sync.on) return `<div class="card">
-    <span class="eyebrow">Synchronisation à deux</span>
-    <div class="hint" style="margin:6px 0 12px">Partage le budget avec un second téléphone : chaque saisie apparaît chez l'autre en quelques secondes. Les données sont chiffrées sur le téléphone avec votre mot de passe commun, le serveur ne voit rien.</div>
-    <div class="calc" style="margin-bottom:12px"><div class="l tap" onclick="editDeviceName()"><span class="n">Prénom sur cet appareil<small>affiché dans « Bonjour »</small></span><span class="a" style="font-weight:520">${esc(deviceName()||"à saisir")}</span></div></div>
-    <button class="btn sm" onclick="editSync()">Activer sur ce téléphone</button></div>`;
+  const I=Sync.info||{}, mb=(I.membres||[]).map(m=>esc(m.nom||m.email||"?")+(m.moi?" (toi)":"")).join(", ");
   return `<div class="card">
-    <div class="sec"><span class="eyebrow">Synchronisation à deux</span><button class="act" onclick="Sync.push()">Synchroniser</button></div>
+    <div class="sec"><span class="eyebrow">Compte et foyer</span><button class="act" onclick="Sync.push()">Synchroniser</button></div>
     <div class="calc">
       <div class="l"><span class="n">État</span><span class="a" style="font-weight:520;font-family:var(--sans);text-align:right" id="syncState">${syncLabel()}</span></div>
-      <div class="l tap" onclick="editDeviceName()"><span class="n">Prénom sur cet appareil<small>affiché dans « Bonjour »</small></span><span class="a" style="font-weight:520">${esc(Sync.cfg.name||"à saisir")}</span></div>
+      <div class="l"><span class="n">Compte<small>${Auth.remember?"reste connecté sur cet appareil":"déconnexion à la fermeture"}</small></span><span class="a" style="font-weight:520;font-family:var(--sans);text-align:right">${esc(Auth.email||"connecté")}</span></div>
+      <div class="l tap" onclick="copyCode()"><span class="n">Code du foyer<small>à donner pour rejoindre · touche pour copier</small></span><span class="a" style="font-weight:600;letter-spacing:.04em">${esc(I.code||"…")}</span></div>
+      <div class="l"><span class="n">Membres<small>${I.places!=null?(I.places>0?I.places+" place"+(I.places>1?"s":"")+" libre"+(I.places>1?"s":""):"complet, 3 comptes sur 3"):""}</small></span><span class="a" style="font-weight:520;font-family:var(--sans);text-align:right">${mb||"…"}</span></div>
+      <div class="l tap" onclick="editDeviceName()"><span class="n">Prénom sur cet appareil<small>affiché dans « Bonjour »</small></span><span class="a" style="font-weight:520">${esc(deviceName()||"à saisir")}</span></div>
     </div>
-    <button class="btn sm ghost" style="margin-top:10px" onclick="editDeviceName()">Modifier le prénom</button>
-    <button class="btn sm ghost" style="margin-top:10px" onclick="leaveSync()">Désactiver sur ce téléphone</button></div>`;
+    <div class="btnrow" style="margin-top:10px"><button class="btn sm ghost" onclick="passwordSheet()">Changer le mot de passe</button><button class="btn sm ghost" onclick="newCodeSheet()">Nouveau code</button></div>
+    <button class="btn sm ghost" style="margin-top:10px" onclick="logoutSheet()">Se déconnecter</button></div>`;
 }
+function busyBtn(on){ const b=sheetBody.querySelector("#shOk"); if(b){ b.disabled=on; b.style.opacity=on?.5:""; } }
+function passwordSheet(){
+  openSheet("Changer le mot de passe","",
+    [{k:"p1",label:"Nouveau mot de passe (8 caractères minimum)",type:"text",ph:""},{k:"p2",label:"Le même, une seconde fois",type:"text",ph:""}],{p1:"",p2:""},
+    d=>{ const p=d.p1||""; if(p.length<8){ toast("8 caractères minimum"); return false; } if(p!==(d.p2||"")){ toast("Les deux mots de passe ne sont pas identiques"); return false; }
+      busyBtn(true);
+      Auth.setPassword(p).then(()=>{ closeSheet(); toast("Mot de passe changé"); }).catch(e=>{ busyBtn(false); toast(esc(e.message||e)); });
+      return false; });
+  sheetBody.querySelectorAll("input").forEach(i=>{ i.type="password"; i.autocomplete="new-password"; });
+}
+function copyCode(){ const c=Sync.info&&Sync.info.code; if(!c) return;
+  const ok=()=>toast("Code copié : "+esc(c)), ko=()=>toast("Code du foyer : "+esc(c));
+  try{ navigator.clipboard.writeText(c).then(ok,ko); }catch(e){ ko(); } }
+function newCodeSheet(){
+  openSheet("Nouveau code","L'ancien code ne marchera plus. Les membres déjà dans le foyer ne sont pas touchés.",[],{},
+    ()=>{ Sync.newCode().then(c=>{ render(); toast("Nouveau code : "+esc(c)); }).catch(e=>toast(esc(e.message||e))); });
+  sheetBody.querySelector("#shOk").textContent="Changer le code";
+}
+function logoutSheet(){
+  openSheet("Se déconnecter","Tu reviendras sur la page d'accueil. Le compte et le budget du foyer restent intacts.",
+    [],{},()=>{ Sync.logout().then(()=>{ S=blank(); Store.save(S); Gate.show("in","Déconnecté"); }); },null);
+  sheetBody.querySelector("#shOk").textContent="Se déconnecter";
+}
+window.addEventListener("online",()=>{ if(Sync.on) Sync.push(); });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&Sync.on) Sync.push(); });
+
+/* ================= page d'accueil : connexion, inscription, mot de passe oublié, foyer ================= */
+const Gate={
+  el:null, mode:"in",
+  isOpen(){ return !!(this.el&&this.el.classList.contains("on")); },
+  show(mode,msg){ this.mode=mode||"in"; this.msg=msg||""; this.paint(); this.el.classList.add("on"); document.body.classList.add("gated"); },
+  hide(){ if(this.el) this.el.classList.remove("on"); document.body.classList.remove("gated"); window.scrollTo(0,0); },
+  err(t){ const e=this.el.querySelector(".g-err"); if(e){ e.textContent=t||""; e.style.display=t?"block":"none"; } },
+  busy(on){ const b=this.el.querySelector(".g-go"); if(b){ b.disabled=on; b.classList.toggle("wait",on); } },
+  val(k){ const i=this.el.querySelector(`[name="${k}"]`); return i?(i.type==="checkbox"?i.checked:i.value):""; },
+  field(name,label,type,auto,ph,val){
+    const pw=type==="password";
+    return `<label class="g-f"><span>${label}</span><span class="g-in"><input name="${name}" type="${type}" autocomplete="${auto}" placeholder="${esc(ph||"")}" value="${esc(val||"")}"
+      ${type==="email"?'inputmode="email"':""} autocapitalize="${name==="code"?"characters":"off"}" autocorrect="off" spellcheck="false">${pw?`<button type="button" class="g-eye" onclick="Gate.eye(this)">Voir</button>`:""}</span></label>`; },
+  eye(b){ const i=b.previousElementSibling; i.type=i.type==="password"?"text":"password"; b.textContent=i.type==="password"?"Voir":"Cacher"; },
+  paint(){
+    if(!this.el){ this.el=document.createElement("div"); this.el.id="gate"; document.body.appendChild(this.el); }
+    const m=this.mode==="foyer"&&!this.pick?"join":this.mode, mail=Auth.email||this.lastMail||"";
+    const head=`<div class="g-top"><img src="icon-180.png?v=5" alt=""><div class="g-name">Sou'Rire</div><div class="g-tag">Le budget du foyer, à plusieurs</div></div>`;
+    let body="";
+    if(m==="in"||m==="up"){
+      const up=m==="up";
+      body=`<div class="g-tabs"><button type="button" class="${up?"":"on"}" onclick="Gate.show('in')">Se connecter</button><button type="button" class="${up?"on":""}" onclick="Gate.show('up')">Créer un compte</button></div>
+      <form class="g-form" onsubmit="Gate.submit(event)">
+        ${up?this.field("nom","Ton prénom","text","given-name","Abdelghani",deviceName()):""}
+        ${this.field("email","Adresse e-mail","email","username","prenom@exemple.fr",mail)}
+        ${this.field("pass",up?"Mot de passe (8 caractères minimum)":"Mot de passe","password",up?"new-password":"current-password","")}
+        ${up?this.field("pass2","Le même, une seconde fois","password","new-password",""):""}
+        <label class="g-check"><input type="checkbox" name="keep" ${Auth.remember!==false?"checked":""}><span>Rester connecté sur cet appareil</span></label>
+        <div class="g-err"></div>
+        <button class="g-go" type="submit">${up?"Créer mon compte":"Se connecter"}</button>
+        ${up?"":`<button type="button" class="g-link" onclick="Gate.lastMail=Gate.val('email');Gate.show('forgot')">Mot de passe oublié ?</button>`}
+      </form>`;
+    } else if(m==="forgot"){
+      body=`<form class="g-form" onsubmit="Gate.submit(event)"><h2>Mot de passe oublié</h2>
+        <p class="g-p">Tape l'adresse de ton compte. Tu vas recevoir un lien pour choisir un nouveau mot de passe. Ouvre-le sur cet appareil.</p>
+        ${this.field("email","Adresse e-mail","email","username","prenom@exemple.fr",mail)}
+        <div class="g-err"></div><button class="g-go" type="submit">Envoyer le lien</button>
+        <button type="button" class="g-link" onclick="Gate.show('in')">Retour à la connexion</button></form>`;
+    } else if(m==="sent"){
+      body=`<div class="g-form"><h2>Regarde ta boîte mail</h2><p class="g-p">Un lien vient de partir vers <b>${esc(mail)}</b>. Pense aux indésirables. En l'ouvrant, tu reviens ici pour choisir ton nouveau mot de passe.</p>
+        <button type="button" class="g-go" onclick="Gate.show('in')">Retour à la connexion</button></div>`;
+    } else if(m==="newpass"){
+      body=`<form class="g-form" onsubmit="Gate.submit(event)"><h2>Nouveau mot de passe</h2><p class="g-p">Choisis ton nouveau mot de passe. Tu restes connecté ensuite.</p>
+        ${this.field("pass","Nouveau mot de passe (8 caractères minimum)","password","new-password","")}
+        ${this.field("pass2","Le même, une seconde fois","password","new-password","")}
+        <div class="g-err"></div><button class="g-go" type="submit">Enregistrer</button></form>`;
+    } else if(m==="foyer"||m==="join"){
+      const join=m==="join";
+      body=`<div class="g-tabs"><button type="button" class="${join?"on":""}" onclick="Gate.pick=1;Gate.show('join')">J'ai un code</button><button type="button" class="${join?"":"on"}" onclick="Gate.pick=1;Gate.show('foyer')">Créer le foyer</button></div>
+      <form class="g-form" onsubmit="Gate.submit(event)">
+        <p class="g-p">${join?"Le foyer existe déjà ? Tape son code, visible dans les réglages ⚙ de l'appareil qui l'a créé. Ce que tu as saisi ici est gardé.":"Seulement pour le premier compte : le budget de cet appareil devient celui du foyer, et tu obtiens un code pour les autres."}</p>
+        ${join?this.field("code","Code du foyer","text","off","SOU-XXXX-XXXX",""):""}
+        ${this.field("nom","Ton prénom","text","given-name","Abdelghani",deviceName())}
+        <div class="g-err"></div><button class="g-go" type="submit">${join?"Rejoindre le foyer":"Créer le foyer"}</button>
+        <button type="button" class="g-link" onclick="Gate.out()">Changer de compte</button></form>`;
+    }
+    this.el.innerHTML=`<div class="g-wrap">${head}<div class="g-card">${this.msg?`<div class="g-msg">${this.msg}</div>`:""}${body}</div></div>`;
+    this.err("");
+  },
+  async out(){ await Sync.logout(); this.show("in"); },
+  async submit(ev){
+    ev.preventDefault(); this.err(""); const m=this.mode==="foyer"&&!this.pick?"join":this.mode;
+    const email=String(this.val("email")||"").trim().toLowerCase(), p=this.val("pass")||"";
+    const okMail=/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email);
+    try{
+      if(m==="in"||m==="up"){
+        if(!okMail) return this.err("Adresse e-mail invalide");
+        if(!p) return this.err("Saisis ton mot de passe");
+        if(m==="up"&&p.length<8) return this.err("8 caractères minimum pour le mot de passe");
+        if(m==="up"&&p!==this.val("pass2")) return this.err("Les deux mots de passe ne sont pas identiques");
+        this.busy(true); Auth.remember=!!this.val("keep"); this.lastMail=email;
+        const nom=String(this.val("nom")||"").trim().slice(0,30); if(nom){ Sync.cfg.name=nom; Sync.saveCfg(); }
+        if(m==="up") await Auth.signUp(email,p,nom); else await Auth.signIn(email,p);
+        await this.enter();
+      } else if(m==="forgot"){
+        if(!okMail) return this.err("Adresse e-mail invalide");
+        this.busy(true); this.lastMail=email; await Auth.recover(email); this.show("sent");
+      } else if(m==="newpass"){
+        if(p.length<8) return this.err("8 caractères minimum");
+        if(p!==this.val("pass2")) return this.err("Les deux mots de passe ne sont pas identiques");
+        this.busy(true); await Auth.setPassword(p); toast("Mot de passe changé"); await this.enter();
+      } else if(m==="foyer"||m==="join"){
+        const nom=String(this.val("nom")||"").trim().slice(0,30);
+        this.busy(true);
+        if(m==="join"){ const code=String(this.val("code")||"").trim().toUpperCase().replace(/\s+/g,"");
+          if(code.length<6){ this.busy(false); return this.err("Saisis le code du foyer"); }
+          await Sync.join(code,nom); this.hide(); tab="today"; render(); toast("Bienvenue dans le foyer<br>Le budget partagé est chargé"); }
+        else { const c=await Sync.create(nom); this.hide(); tab="today"; render();
+          setTimeout(()=>{ openSheet("Foyer créé",`Ton code : <b style="font-size:18px;letter-spacing:.05em">${esc(c)}</b><br>Les autres membres créent leur compte sur la page d'accueil, puis tapent ce code. Il reste visible dans les réglages.`,[],{},()=>{ copyCode(); }); sheetBody.querySelector("#shOk").textContent="Copier le code"; },350); }
+      }
+    }catch(e){ this.busy(false); this.err(String(e&&e.message||e)); }
+  },
+  /* après connexion : le foyer s'il existe, sinon l'étape foyer */
+  async enter(){
+    await Auth.whoami(); this.busy(true);
+    const r=await Sync.start();
+    if(r==="nofoyer") return this.show("foyer");
+    if(r==="offline"&&!Sync.cfg.joined){ this.busy(false); return this.err("Pas de réseau, réessaie"); }
+    this.hide(); tab="today"; render();
+  }
+};
+
 /* ================= prénom de l'appareil et citation ================= */
 const NAME_KEY="budget2.prenom";
 function deviceName(){ if(Sync.cfg&&Sync.cfg.name) return Sync.cfg.name; try{ return localStorage.getItem(NAME_KEY)||S.defaults.hello||""; }catch(e){ return S.defaults.hello||""; } }
@@ -2554,31 +2823,6 @@ document.addEventListener("visibilitychange",()=>{
   if(document.visibilityState==="hidden") _hiddenAt=Date.now();
   else if(_hiddenAt&&Date.now()-_hiddenAt>60000){ _hiddenAt=0; try{ quoteOpened(); render(); }catch(e){} }
 });
-function editSync(pre){
-  const hasData=Object.values(S.months).some(M=>M.ops.length>0)||S.recurring.length>0;
-  openSheet("Synchronisation à deux",
-    `Le même mot de passe commun sur les deux téléphones. <b>Le premier téléphone envoie ses données, le second les reprend</b> (les siennes sont remplacées, une copie est gardée). Sans ce mot de passe, impossible de relire les données : notez-le bien.`,
-    [{k:"mode",label:"Ce téléphone",type:"seg",options:[{v:"create",t:"Premier téléphone"},{v:"join",t:"Rejoindre l'autre"}]},
-     {k:"name",label:"Prénom de la personne qui utilise ce téléphone",type:"text",ph:"Abdelghani"},
-     {k:"p1",label:"Mot de passe commun (10 caractères minimum)",type:"text",ph:""},
-     {k:"p2",label:"Le même, une seconde fois",type:"text",ph:""}],
-    {mode:pre||(hasData?"create":"join"),name:deviceName(),p1:"",p2:""},
-    d=>{ const p=(d.p1||"").trim();
-      if(p.length<10){ toast("10 caractères minimum, par exemple une petite phrase"); return false; }
-      if(p!==(d.p2||"").trim()){ toast("Les deux mots de passe ne sont pas identiques"); return false; }
-      toast("Connexion au foyer…");
-      Sync.join(p,d.name,d.mode).then(created=>{ tab="today"; render(); toast(created?"Synchronisation activée<br>Fais pareil sur l'autre téléphone, avec le même mot de passe":"Téléphone relié au foyer<br>Les données partagées sont chargées"); })
-        .catch(e=>{ Sync.cfg=null; Sync.saveCfg(); toast("Échec : "+esc(e.message||e)); render(); });
-    });
-  const b=sheetBody; ["p1","p2"].forEach(k=>{ const i=b.querySelector(`[data-k="${k}"]`); i.type="password"; i.autocomplete="new-password"; i.setAttribute("autocapitalize","off"); });
-}
-function leaveSync(){
-  openSheet("Désactiver la synchronisation","Ce téléphone garde ses données mais ne reçoit plus celles de l'autre. Les données partagées restent sur le serveur, chiffrées. Tu pourras réactiver avec le même mot de passe.",
-    [],{},()=>{ Sync.leave(); toast("Synchronisation désactivée sur ce téléphone"); },null);
-  sheetBody.querySelector("#shOk").textContent="Désactiver";
-}
-window.addEventListener("online",()=>Sync.on&&(Sync.be?Sync.push():Sync.start()));
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="visible"&&Sync.on){ if(Sync.be) Sync.push(); else Sync.start(); } });
 
 /* ================= rapports PDF et Excel ================= */
 const LIBS={pdf:["lib/jspdf.umd.min.js","lib/jspdf.plugin.autotable.min.js"],xlsx:["lib/exceljs.min.js"]}, _loaded={};
@@ -2818,18 +3062,23 @@ async function buildXlsx(R){
 
 /* retour à la synchro par mot de passe commun : si cet appareil avait basculé sur les comptes, on remet l'ancien réglage
    et on prend comme base la dernière version partagée, pour que les saisies faites entre-temps partent sans rien écraser */
-async function restoreOldSync(){
-  try{
-    if(localStorage.getItem(SYNC_KEY)) return; const a=localStorage.getItem("budget2.sync.ancien"); if(!a) return;
-    const c=JSON.parse(a); if(!c||!c.hid||!c.key) return;
-    const d=await (await supabaseBackend(c.hid)).get();
-    if(d){ localStorage.setItem(SYNC_BASE,JSON.stringify(canon(await openData(d,c.key)))); c.ver=d.v||0; }
-    localStorage.setItem(SYNC_KEY,JSON.stringify(c)); localStorage.removeItem("budget2.sync.ancien");
-  }catch(e){}
+function restoreAside(){ try{ if(localStorage.getItem(SYNC_KEY)) return; const a=localStorage.getItem("budget2.sync.ancien"); if(!a) return;
+  if(localStorage.getItem(BASE2)) return; localStorage.setItem(SYNC_KEY,a); }catch(e){} }
+async function handleLink(){
+  const link=Auth.fromLink(); if(!link) return false;
+  if(link.error){ Gate.show("forgot","Ce lien a expiré ou a déjà servi : redemande-le."); return true; }
+  await Auth.whoami();
+  if(link.type==="recovery"){ Gate.show("newpass"); return true; }
+  await Gate.enter(); return true;
 }
 (async function init(){
   const saved=await Store.load(); if(saved){ S=migrate(Object.assign(blank(),saved)); fixAmountsOnce(); fixOct2Once(); }
-  await restoreOldSync(); Sync.loadCfg(); month(cur); try{ quoteOpened(); }catch(e){} render(); Sync.start();
+  restoreAside(); Auth.load(); Sync.loadCfg(); month(cur); try{ quoteOpened(); }catch(e){} render();
+  if(!await handleLink()){
+    if(!Auth.on) Gate.show("in",oldCfg()?"Nouveau : chacun a maintenant son compte. Crée le tien, puis rejoins le foyer avec son code. Tes données sont gardées.":"");
+    else { const r=await Sync.start(); if(r==="nofoyer") Gate.show("foyer"); }
+  }
+  window.addEventListener("hashchange",()=>{ handleLink(); });
   if("serviceWorker" in navigator){ try{ navigator.serviceWorker.register("sw.js",{updateViaCache:"none"}).then(r=>r.update()).catch(()=>{}); }catch(e){} }
 })();
 </script>
