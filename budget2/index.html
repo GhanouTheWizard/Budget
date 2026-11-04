@@ -399,7 +399,7 @@ nav .badge{top:-30px;left:calc(50% + 14px)}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v29 · 27 octobre 2026";
+const APP_VERSION="v36 · 4 novembre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -520,8 +520,8 @@ function shiftWeek(i,d){
 function editWeek(i){
   const M=month(cur), sats=saturdays(cur), b=weekBudgets(cur,+M.courses||0);
   openSheet("Courses du samedi "+sats[i],"Ce que tu ajoutes ou enlèves ici est repris sur la semaine d'après, pour que le total reste celui du mois ("+eur0(+M.courses||0)+").",
-    [{k:"amount",label:"Budget de la semaine",type:"money"}],{amount:Math.round(b[i]*100)/100},
-    d=>{ setTimeout(()=>shiftWeek(i,num(d.amount)-b[i]),0); });
+    [{k:"amount",label:"Budget de la semaine",type:"money"}],{amount:frAmt(b[i])},
+    d=>{ setTimeout(()=>shiftWeek(i,r2(Math.max(0,num(d.amount))-b[i])),0); });
 }
 function resetWeeks(){ delete month(cur).wkAdj; persist(); const y=scrollY; render(); scrollTo(0,y); }
 function weeksCard(C,ym){
@@ -531,7 +531,7 @@ function weeksCard(C,ym){
   ${W.map(w=>{ const lv=capLevel(w.s,w.b), pc=w.b>0?Math.min(100,w.s/w.b*100):0, d=w.s-w.b;
     return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${w.sat} ${mo}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${w.from} au ${w.to} ${mo}</small></span><span style="display:flex;align-items:center;gap:6px;flex:none">
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},-1)" aria-label="Moins">−</button>
-      <span class="a" style="min-width:64px;text-align:center" onclick="editWeek(${w.i})">${eur0(w.b)}</span>
+      <span class="a" style="min-width:64px;text-align:center" onclick="editWeek(${w.i})">${eurX(w.b)}</span>
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},1)" aria-label="Plus">+</button></span></div>
     <div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div>
     <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(w.s)} dépensés · ${d>0.5?`<b style="color:${LV_COL[3]||"#c33"}">${eur0(d)} de trop</b>`:`reste ${eur0(-d)}`}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(pc)+" %"}</span></div></div>`; }).join("")}
@@ -561,6 +561,8 @@ const nf=new Intl.NumberFormat("fr-FR",{minimumFractionDigits:2,maximumFractionD
 const nf0=new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0});
 function eur(n){ return nf.format(n||0)+"\u00a0€"; }
 function eur0(n){ return nf0.format(Math.round(n||0))+"\u00a0€"; }
+function eurX(n){ n=r2(+n||0); return Math.abs(n-Math.round(n))>0.004?eur(n):eur0(n); }
+function frAmt(n){ n=r2(+n||0); return n?String(n).replace(".",","):""; }
 function esc(s){ return String(s==null?"":s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 function clean(x){ return String(x==null?"":x).replace(/[\s\u00a0\u202f€]/g,"").replace(",","."); }
 function num(x){ const n=parseFloat(clean(x)); return isNaN(n)?0:n; }
@@ -1055,9 +1057,9 @@ function compensate(srcId,d){
 function compToast(){
   if(!lastComp) return;
   const parts=Object.keys(lastComp.moves).filter(id=>Math.abs(lastComp.moves[id])>=0.005&&id!==lastComp.src)
-    .map(id=>`${esc(cat(id).name)} ${lastComp.moves[id]>0?"+":"−"}${eur0(Math.abs(lastComp.moves[id]))}`);
+    .map(id=>`${esc(cat(id).name)} ${lastComp.moves[id]>0?"+":"−"}${eurX(Math.abs(lastComp.moves[id]))}`);
   if(!parts.length&&!(lastComp.left>0.005)) return;
-  toast((parts.length?`Compensé : ${parts.join(", ")}`:"")+(lastComp.left>0.005?`${parts.length?"<br>":""}Plus de marge dans les autres enveloppes : ${eur0(lastComp.left)} pris sur l'épargne`:"")
+  toast((parts.length?`Compensé : ${parts.join(", ")}`:"")+(lastComp.left>0.005?`${parts.length?"<br>":""}Plus de marge dans les autres enveloppes : ${eurX(lastComp.left)} pris sur l'épargne`:"")
     +(parts.length?`<button class="tb" onclick="undoComp()">Annuler</button>`:""),6000);
 }
 function undoComp(){
@@ -1074,14 +1076,18 @@ function editComp(){
     {on:k.on?"1":"0",first:k.first},
     d=>{ k.on=d.on==="1"; if(d.first) k.first=d.first; lastComp=null; });
 }
-function bumpCap(id,d){ const c=S.categories.find(x=>x.id===id); if(!c) return; const old=+c.budget||0; c.budget=Math.max(0,old+d); compensate(id,c.budget-old); syncSec(); refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
-function bumpCourses(d){ const M=month(cur); M.courses=Math.max(0,(+M.courses||0)+d); if(cur>=ymNow()) S.defaults.courses=M.courses; refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
-function envRow(name,s,b,minus,plus,edit,sub){
+function bumpCap(id,d){ const c=S.categories.find(x=>x.id===id); if(!c) return; const old=+c.budget||0; c.budget=Math.max(0,r2(old+d)); compensate(id,c.budget-old); syncSec(); refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
+function editCap(id){ const c=S.categories.find(x=>x.id===id); if(!c) return; const old=+c.budget||0;
+  openSheet("Enveloppe · "+c.name,"Tape le montant que tu veux, centimes compris (par exemple 37,50). Vide ou 0 = pas de plafond.",
+    [{k:"amount",label:"Montant du mois",type:"money",ph:"0,00"}],{amount:frAmt(old)},
+    d=>{ const a=Math.max(0,r2(num(d.amount))); c.budget=a; if(c.pocket==="securite") compensate(id,a-old); setTimeout(()=>{ syncSec(); refreshProposals(); persist(); render(); },0); }); }
+function bumpCourses(d){ const M=month(cur); M.courses=Math.max(0,r2((+M.courses||0)+d)); if(cur>=ymNow()) S.defaults.courses=M.courses; refreshProposals(); persist(); const y=scrollY; render(); scrollTo(0,y); }
+function envRow(name,s,b,minus,plus,edit,sub,amt){
   const lv=capLevel(s,b), pc=b>0?Math.min(100,s/b*100):0;
   return `<div class="cap"><div class="h"><span onclick="${edit}" style="flex:1">${esc(name)}${sub?`<small style="display:block;font-size:11.5px;color:var(--ink-3)">${sub}</small>`:""}</span>
     <span style="display:flex;align-items:center;gap:6px;flex:none">
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="${minus}" aria-label="Moins">−</button>
-      <span class="a" style="min-width:74px;text-align:center" onclick="${edit}">${b>0?eur0(b):"aucun"}</span>
+      <span class="a" style="min-width:74px;text-align:center" onclick="${amt||edit}">${b>0?eurX(b):"aucun"}</span>
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="${plus}" aria-label="Plus">+</button></span></div>
     ${b>0?`<div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div><div class="ticks"><i style="left:50%"></i><i style="left:70%"></i><i style="left:90%"></i></div>
     <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(s)} dépensés · reste ${eur0(Math.max(0,b-s))}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(s/b*100)+" %"}</span></div>`
@@ -1163,8 +1169,8 @@ function vEnv(){
   </div>
   ${weeksCard(C,cur)}
   <div class="card">
-    <div class="sec"><span class="eyebrow">Enveloppes du mois</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(cats.reduce((t,c)=>t+(C.byCat[c.id]||0),0))} / ${eur0(caps)}</span></div>
-    ${cats.map(c=>envRow(c.name,C.byCat[c.id]||0,+c.budget||0,`bumpCap('${c.id}',-1)`,`bumpCap('${c.id}',1)`,`editCategory('${c.id}')`,"")).join("")}
+    <div class="sec"><span class="eyebrow">Enveloppes du mois</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eurX(cats.reduce((t,c)=>t+(C.byCat[c.id]||0),0))} / ${eurX(caps)}</span></div>
+    ${cats.map(c=>envRow(c.name,C.byCat[c.id]||0,+c.budget||0,`bumpCap('${c.id}',-1)`,`bumpCap('${c.id}',1)`,`editCategory('${c.id}')`,"",`editCap('${c.id}')`)).join("")}
     <div class="hint">Alertes : jaune à 50 %, orange à 70 %, rouge en grand à 90 % et au dépassement. Les traits gris sur les barres marquent ces seuils.</div>
     <div class="calc" style="margin-top:10px"><div class="l tap" onclick="editComp()" style="border-top:1px solid var(--line-soft)"><span class="n">Compensation automatique<small>${compCfg().on?`priorité : ${esc((cat(compCfg().first)||{}).name||"aucune")}, la marge du mois reste la même`:"désactivée : changer une enveloppe change la marge"}</small></span><span class="a" style="color:var(--teal)">${compCfg().on?"Activée":"Off"} ›</span></div></div>
     <button class="btn ghost sm" style="margin-top:10px" onclick="editCategory()">+ Nouvelle enveloppe</button>
@@ -1955,8 +1961,8 @@ function editCourses(){
   const M=month(cur), dim=daysIn(cur);
   openSheet("Enveloppe courses",`Budget courses pour tout le mois, payé par ${esc(accName(S.defaults.coursesAccount))}. ${saturdays(cur).length} samedis ce mois, soit ${eur0((+M.courses||0)/(saturdays(cur).length||1))} par semaine.`,
     [{k:"amount",label:"Budget du mois",type:"money",ph:"450,00"},{k:"scope",label:"Appliquer",type:"seg",options:[{v:"m",t:"Ce mois"},{v:"a",t:"Et les suivants"}]}],
-    {amount:M.courses||"",scope:"m"},
-    d=>{ const a=num(d.amount); M.courses=a; if(d.scope==="a") S.defaults.courses=a; });
+    {amount:frAmt(M.courses),scope:"m"},
+    d=>{ const a=Math.max(0,r2(num(d.amount))); M.courses=a; if(d.scope==="a") S.defaults.courses=a; });
 }
 function editRepas(){
   const M=month(cur);
@@ -1970,7 +1976,7 @@ function editSec(aid){
   const M=month(cur); M.securite=M.securite||{};
   openSheet("Sécurité · "+accName(aid),"Enveloppe pour les imprévus de ce compte. Tant qu'elle n'est pas dépassée, l'épargne ne bouge pas.",
     [{k:"amount",label:"Montant du mois",type:"money",ph:"0,00"},{k:"scope",label:"Appliquer",type:"seg",options:[{v:"m",t:"Ce mois"},{v:"a",t:"Et les suivants"}]}],
-    {amount:M.securite[aid]||"",scope:"m"},
+    {amount:frAmt(M.securite[aid]),scope:"m"},
     d=>{ const a=num(d.amount); M.securite[aid]=a; if(d.scope==="a"){ S.defaults.securite=S.defaults.securite||{}; S.defaults.securite[aid]=a; } });
 }
 function validateDepart(){
@@ -2146,7 +2152,7 @@ function editCategory(id){
     [{k:"name",label:"Nom",type:"text"},{k:"pocket",label:"Où va la dépense",type:"seg",options:[{v:"securite",t:"Sécurité du compte"},{v:"courses",t:"Enveloppe courses"},{v:"repas",t:"Paniers repas"}]},
      {k:"refund",label:"Remboursable ?",type:"seg",options:[{v:"0",t:"Non"},{v:"1",t:"Oui (mutuelle, frais)"}]},
      {k:"budget",label:"Plafond par mois (vide = aucun)",type:"money",ph:"aucun"}],
-    it?{name:it.name,pocket:it.pocket,refund:it.refund?"1":"0",budget:it.budget||""}:{name:"",pocket:"securite",refund:"0",budget:""},
+    it?{name:it.name,pocket:it.pocket,refund:it.refund?"1":"0",budget:frAmt(it.budget)}:{name:"",pocket:"securite",refund:"0",budget:""},
     d=>{ if(!d.name.trim()){toast("Il manque le nom");return false;} const o={name:d.name.trim(),pocket:d.pocket,refund:d.refund==="1",budget:num(d.budget)}; setTimeout(()=>{ syncSec(); refreshProposals(); persist(); render(); },0); if(it){ const old=it.pocket==="securite"?(+it.budget||0):0; Object.assign(it,o); if(it.pocket==="securite") compensate(it.id,(+it.budget||0)-old); } else S.categories.push(Object.assign({id:uid()},o)); },
     (it&&S.categories.length>1)?()=>{ const fb=S.categories.find(c=>c.id!==id).id; for(const ym in S.months) S.months[ym].ops.forEach(o=>{ if(o.category===id) o.category=fb; }); S.categories=S.categories.filter(c=>c.id!==id); }:null);
 }
