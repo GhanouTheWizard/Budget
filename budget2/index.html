@@ -432,7 +432,7 @@ body.gated{overflow:hidden}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v37 · 4 novembre 2026";
+const APP_VERSION="v38 · 5 novembre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -519,7 +519,7 @@ function saturdays(ym){ const {y,m}=ymParts(ym), n=daysIn(ym), r=[]; for(let d=1
 function coursesWeek(C,ym){
   const sats=saturdays(ym), n=sats.length||1, weekly=C.courses/n, cur_=ym===ymNow(), t=cur_?Math.min(new Date().getDate(),daysIn(ym)):0;
   const left=sats.filter(d=>d>=t).length, lastSat=sats.filter(d=>d<=t).pop()||0;
-  let wkSpent=0; if(cur_){ const M=month(ym); M.ops.forEach(o=>{ if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&(o.day||1)>=(lastSat||1)&&(o.day||1)<=t) wkSpent+=Math.max(0,(+o.amount||0)-(o._refunded||0)); }); }
+  let wkSpent=0; if(cur_){ const M=month(ym); M.ops.forEach(o=>{ if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&(o.day||1)>=(lastSat||1)&&(o.day||1)<=t) wkSpent+=opNet(o); }); }
   const next=sats.find(d=>d>=t);
   return {sats,n,weekly,left,perLeft:left?C.coursesLeft/left:0,wkSpent,next,cur:cur_};
 }
@@ -528,7 +528,7 @@ function coursesWeeks(C,ym){
   const sats=saturdays(ym), dim=daysIn(ym), M=month(ym), wb=weekBudgets(ym,C.courses);
   const t=ym===ymNow()?new Date().getDate():(ym<ymNow()?dim+1:0);
   return sats.map((d,i)=>{ const from=i===0?1:d, to=i<sats.length-1?sats[i+1]-1:dim; let sp=0;
-    M.ops.forEach(o=>{ const day=o.day||1; if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&day>=from&&day<=to) sp+=Math.max(0,(+o.amount||0)-(o._refunded||0)); });
+    M.ops.forEach(o=>{ const day=o.day||1; if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&day>=from&&day<=to) sp+=opNet(o); });
     return {i,sat:d,from,to,b:wb[i],s:sp,now:t>=from&&t<=to,past:t>to}; });
 }
 /* budget de chaque semaine : part égale + ajustements (M.wkAdj), le total reste celui du mois */
@@ -586,6 +586,8 @@ function today(){ return isCur()?Math.min(new Date().getDate(),daysIn(cur)):days
 function acc(id){ return S.accounts.find(a=>a.id===id); }
 function accName(id){ const a=acc(id); return a?a.name:"?"; }
 function accColor(id){ const i=S.accounts.findIndex(a=>a.id===id); return CCOL[i<0?4:i%CCOL.length]; }
+/* ce qui compte vraiment dans une dépense : 0 si elle attend un remboursement (avance), sinon montant moins remboursements */
+function opNet(o,ref){ if(o.waitRef) return 0; return Math.max(0,(+o.amount||0)-(ref!=null?ref:(o._refunded||0))); }
 function cat(id){ return S.categories.find(c=>c.id===id)||{id,name:id||"?",pocket:"securite",refund:false}; }
 function catByName(n){ return S.categories.find(c=>c.name.toLowerCase()===String(n||"").toLowerCase()); }
 function A0(){ return S.accounts[0].id; }
@@ -662,13 +664,15 @@ function calc(ym){
   // remboursements liés : net par opération
   const refundsOf={};
   M.ops.filter(o=>o.kind==="in"&&o.refundOf).forEach(o=>{ refundsOf[o.refundOf]=(refundsOf[o.refundOf]||0)+(+o.amount||0); });
-  let spentCourses=0, spentRepas=0, nRepas=0, extraTot=0, toRefund=0, nToRefund=0, projSpentM=0;
+  let spentCourses=0, spentRepas=0, nRepas=0, extraTot=0, toRefund=0, nToRefund=0, projSpentM=0, waitTot=0, nWait=0;
   const byCat={};
   M.ops.forEach(o=>{
     const a=g(o.account), v=+o.amount||0;
     if(o.kind==="out"){
       a.out+=v; if(o.seen) a.outSeen+=v; else { a.pendingOut+=v; a.nPending++; }
       const net=Math.max(0,v-(refundsOf[o.id]||0)), p=cat(o.category).pocket;
+      // avance en attente de remboursement : l'argent sort du compte, mais ne touche ni enveloppes, ni marge, ni épargne
+      if(o.waitRef){ if(net>0.005){ waitTot+=net; nWait++; } return; }
       if(o.proj){ projSpentM+=net; return; }   // achat d'un projet anticipé : payé par sa réserve, hors plafonds
       byCat[o.category]=(byCat[o.category]||0)+net;
       if(cat(o.category).refund && net>0.005){ toRefund+=net; nToRefund++; }
@@ -707,7 +711,7 @@ function calc(ym){
   const startTot=Object.values(A).reduce((t,a)=>t+a.start,0);
   const pendingTot=Object.values(A).reduce((t,a)=>t+a.pending,0), nPending=Object.values(A).reduce((t,a)=>t+a.nPending,0);
   return {A,dispo,fixed,spentAll,prot,savedNet,epargnePossible,reste,courses,spentCourses,coursesLeft,repas,spentRepas,repasLeft,nRepas,
-          salaryTot,recvTot,extraTot,startTot,secTot,pendingTot,nPending,byCat,toRefund,nToRefund,projSpentM,projRes};
+          salaryTot,recvTot,extraTot,startTot,secTot,pendingTot,nPending,byCat,toRefund,nToRefund,projSpentM,projRes,waitTot,nWait};
 }
 
 /* besoin de chaque compte et proposition de virements */
@@ -885,7 +889,7 @@ function capsCard(C){
   caps.forEach(c=>list.push({id:c.id,name:c.name,s:C.byCat[c.id]||0,b:+c.budget,edit:`editCategory('${c.id}')`}));
   const watch=list.map(e=>Object.assign(e,{lv:capLevel(e.s,e.b)})).filter(e=>e.lv>=2).sort((a,b)=>b.lv-a.lv||b.s/b.b-a.s/a.b);
   const worst=watch.length?watch[0].lv:0, totB=list.reduce((a,e)=>a+e.b,0), totS=list.reduce((a,e)=>a+e.s,0);
-  if(!list.length&&!C.toRefund) return "";
+  if(!list.length&&!C.toRefund&&!C.waitTot) return "";
   return `<div class="card" onclick="go('env')">
     <div class="sec"><span class="eyebrow">Enveloppes</span><span class="act">Régler →</span></div>
     ${list.length?`<div style="display:flex;justify-content:space-between;align-items:baseline;gap:10px">
@@ -901,6 +905,7 @@ function capsCard(C){
       :list.length?`<div class="hint" style="margin-top:8px;color:var(--teal);font-weight:600">● Toutes les enveloppes sont sous 70 %.</div>`:""}
     <div class="calc" style="margin-top:8px"><div class="l" style="border-top:1px solid var(--line-soft)"><span class="n">Marge du mois<small>ce qui restera pour l'épargne si les enveloppes sont tenues</small></span><span class="a ${C.reste<0?"minus":"plus"}">${eur(C.reste)}</span></div></div>
     ${C.toRefund>0?`<div class="calc" style="margin-top:8px"><div class="l" style="border-top:1px solid var(--line-soft)"><span class="n">À te faire rembourser<small>santé ou frais pro, pense aux notes de frais</small></span><span class="a" style="color:var(--amber)">${eur(C.toRefund)}</span></div></div>`:``}
+    ${C.waitTot>0.005?`<div class="calc" style="margin-top:8px"><div class="l" style="border-top:1px solid var(--line-soft)"><span class="n">Avances en attente de remboursement<small>${C.nWait} dépense${C.nWait>1?"s":""} hors budget : elles ne comptent pas dans la marge</small></span><span class="a" style="color:var(--indigo)">${eur(C.waitTot)}</span></div></div>`:``}
   </div>`;
 }
 
@@ -1270,7 +1275,7 @@ function vStats(){
 
   // 1. rythme : cumul jour par jour
   const daily=new Array(dim+1).fill(0);
-  M.ops.forEach(o=>{ const d=Math.min(dim,Math.max(1,o.day||1)); if(o.kind==="out"&&!o.proj) daily[d]+=+o.amount||0; else if(o.refundOf) daily[d]-=+o.amount||0; });
+  M.ops.forEach(o=>{ const d=Math.min(dim,Math.max(1,o.day||1)); if(o.kind==="out"&&!o.proj&&!o.waitRef) daily[d]+=+o.amount||0; else if(o.refundOf){ const t=M.ops.find(x=>x.id===o.refundOf); if(!(t&&t.waitRef)) daily[d]-=+o.amount||0; } });
   const cum=[0]; for(let d=1;d<=dim;d++) cum[d]=cum[d-1]+daily[d];
   const spent=cum[t];
   const W=340,H=170,pl=36,pr=8,pt=10,pb=22, ymax=Math.max(B,spent,100)*1.12;
@@ -1518,7 +1523,7 @@ function catFil(c){ filCat=c; filFilter="all"; filDay=null; tab="fil"; render();
 /* dépenses nettes (remboursements déduits) par catégorie, pour un mois et éventuellement un compte */
 function catSpend(ym,acc){ const M=S.months[ym]; const out={}, n={}; if(!M) return {out,n};
   const ref={}; M.ops.forEach(o=>{ if(o.kind==="in"&&o.refundOf) ref[o.refundOf]=(ref[o.refundOf]||0)+(+o.amount||0); });
-  M.ops.forEach(o=>{ if(o.kind!=="out"||o.proj||(acc&&o.account!==acc)) return; out[o.category]=(out[o.category]||0)+Math.max(0,(+o.amount||0)-(ref[o.id]||0)); n[o.category]=(n[o.category]||0)+1; });
+  M.ops.forEach(o=>{ if(o.kind!=="out"||o.proj||(acc&&o.account!==acc)) return; if(o.waitRef) return; out[o.category]=(out[o.category]||0)+opNet(o,ref[o.id]||0); n[o.category]=(n[o.category]||0)+1; });
   return {out,n}; }
 function catBar(acc){
   const {out}=catSpend(cur,acc), ids=Object.keys(out).filter(id=>out[id]>0.005).sort((a,b)=>out[b]-out[a]);
@@ -1570,7 +1575,7 @@ function vFil(){
     const c=cat(o.category), target=o.refundOf?M.ops.find(x=>x.id===o.refundOf):null;
     const sub = o.kind==="in"
       ? (target?`remboursement · ${esc(target.label||cat(target.category).name)}`:`rentrée`)
-      : `${esc(c.name)}${c.pocket==="courses"?" · courses":c.pocket==="repas"?" · panier":""}${c.refund?(o._refunded>0?` · remboursé ${eur0(o._refunded)} / ${eur0(o.amount)}`:" · remboursable"):""}`;
+      : `${esc(c.name)}${c.pocket==="courses"?" · courses":c.pocket==="repas"?" · panier":""}${o.waitRef?((o._refunded||0)>=(+o.amount||0)-0.005?` · avance remboursée`:o._refunded>0?` · avance, remboursé ${eur0(o._refunded)} / ${eur0(o.amount)}`:" · avance, remboursement attendu"):c.refund?(o._refunded>0?` · remboursé ${eur0(o._refunded)} / ${eur0(o.amount)}`:" · remboursable"):""}`;
     return `<div class="row">
       <button class="chk ${o.seen?"on":""}" onclick="toggleSeen('${o.id}')" aria-label="Vu à la banque">✓</button>
       <div class="body" onclick="editOp('${o.id}')"><div class="t">${esc(o.label||c.name)}</div>
@@ -1844,7 +1849,7 @@ function markAllSeen(){ month(cur).ops.forEach(o=>o.seen=true); persist(); rende
 function editOp(id){
   const M=month(cur), it=id?M.ops.find(x=>x.id===id):null;
   const defAcc = it?it.account:(filFilter!=="all"&&filFilter!=="pending"?filFilter:(S.defaults.coursesAccount||A0()));
-  const refundables=M.ops.filter(o=>o.kind==="out"&&cat(o.category).refund&&(o._refunded||0)<(+o.amount||0));
+  const refundables=M.ops.filter(o=>o.kind==="out"&&(o.waitRef||cat(o.category).refund)&&(o._refunded||0)<(+o.amount||0)-0.005);
   const otherAcc=(S.accounts.find(a=>a.id!==defAcc)||S.accounts[0]).id;
   const body=openSheet(it?"Modifier":"Nouvelle opération",
     "",
@@ -1858,10 +1863,12 @@ function editOp(id){
           <div class="day">${o.day}<small>jour</small></div><div class="body"><div class="t">${esc(o.label||cat(o.category).name)}</div><div class="s">${esc(cat(o.category).name)} · reste ${eur0((+o.amount||0)-(o._refunded||0))}</div></div><div class="amt">${eur(o.amount)}</div></div>`).join("")}
           <div class="row" data-ref=""><div class="body"><div class="t">Aucune, c'est une rentrée</div><div class="s">prime, vente, aide</div></div></div>
         </div></div>`},
+     {k:"wait",label:"Je vais être remboursé ?",type:"seg",options:[{v:"0",t:"Non"},{v:"1",t:"Oui, c'est une avance"}]},
+     {type:"html",html:`<div class="hint" id="waitHint" style="display:none;margin:-4px 0 10px">La dépense sort bien du compte, mais elle ne touche ni tes enveloppes, ni la marge, ni l'épargne. Quand l'argent revient, saisis une rentrée et rattache-la à cette dépense.</div>`},
      {k:"label",label:"Détail (facultatif)",type:"text",ph:"Carrefour, Dr Martin…"},
      {k:"day",label:"Jour",type:"day"}],
-    it?{kind:it.kind,amount:it.amount,account:it.account,to:otherAcc,category:it.category,label:it.label,day:it.day}
-      :{kind:"out",amount:"",account:defAcc,to:otherAcc,category:filCat||S.categories[0].id,label:"",day:today()},
+    it?{kind:it.kind,amount:it.amount,account:it.account,to:otherAcc,category:it.category,label:it.label,day:it.day,wait:it.waitRef?"1":"0"}
+      :{kind:"out",amount:"",account:defAcc,to:otherAcc,category:filCat||S.categories[0].id,label:"",day:today(),wait:"0"},
     d=>{ const a=num(d.amount); if(a<=0){toast("Indique un montant");return false;}
       if(d.kind==="salary"){
         const o={label:(d.label||"").trim()||S.defaults.salaryLabel||"Salaire",amount:a,account:d.account,got:true};
@@ -1878,12 +1885,13 @@ function editOp(id){
       }
       if(d.kind==="out" && d.category==="c-divers" && !(d.label||"").trim()){ toast("Divers : ajoute un détail (quoi, où) pour t'y retrouver"); return false; }
       const sel=body.querySelector("#refundList .row.on"); const refundOf = d.kind==="in" ? (sel&&sel.dataset.ref?sel.dataset.ref:null) : null;
-      const o={kind:d.kind,amount:a,account:d.account,category:d.category,label:(d.label||"").trim(),day:clampDay(d.day)||today(),refundOf};
+      const o={kind:d.kind,amount:a,account:d.account,category:d.category,label:(d.label||"").trim(),day:clampDay(d.day)||today(),refundOf,waitRef:d.kind==="out"&&d.wait==="1"};
       if(refundOf){ const t=M.ops.find(x=>x.id===refundOf); if(t) o.category=t.category; }
       const lvBefore=o.kind==="out"?envLevelOf(o.category,calc(cur)):null;
       if(it) Object.assign(it,o);
       else { M.ops.push(Object.assign({id:uid(),seen:false,ts:Date.now()},Sync.on&&Sync.cfg.name?{by:Sync.cfg.name}:{},o));
         const C=calc(cur), c=cat(o.category), x=C.A[o.account];
+        if(o.kind==="out" && o.waitRef){ toast(`−${eur(a)} · ${esc(accName(o.account))}<br>Avance notée : hors budget jusqu'au remboursement`); return; }
         if(o.kind==="out" && envNotice(lvBefore,envLevelOf(o.category,C))) return;
         if(o.kind==="out"){
           const b=+c.budget||0, sp=C.byCat[c.id]||0;
@@ -1900,10 +1908,12 @@ function editOp(id){
   // comportement dynamique : remboursement -> liste des dépenses
   const kindSeg=body.querySelector('.seg[data-k="kind"]'), box=body.querySelector("#refundBox"), catBox=body.querySelector('.seg-chips[data-k="category"]').closest(".f");
   const fOf=k=>body.querySelector(`[data-k="${k}"]`).closest(".f");
+  const waitSeg=body.querySelector('.seg[data-k="wait"]'), waitBox=waitSeg.closest(".f"), waitHint=body.querySelector("#waitHint");
   const accLbl=fOf("account").querySelector("label"), toBox=fOf("to"), dayBox=fOf("day"), lblInp=body.querySelector('[data-k="label"]');
   const sync=()=>{ const k=kindSeg.querySelector("button.on").dataset.v, simple=k==="salary"||k==="transfer";
     if(k==="transfer"){ const a=body.querySelector('[data-k="amount"]').value; closeSheet(); setTimeout(()=>quickTransfer({amount:a}),280); return; }
     box.style.display=k==="in"?"":"none";
+    waitBox.style.display=k==="out"?"":"none"; waitHint.style.display=k==="out"&&waitSeg.querySelector("button.on")?.dataset.v==="1"?"":"none";
     catBox.style.display=simple||(k==="in"&&body.querySelector("#refundList .row.on:not([data-ref=''])"))?"none":"";
     toBox.style.display=k==="transfer"?"":"none";
     dayBox.style.display=simple?"none":"";
@@ -1915,7 +1925,7 @@ function editOp(id){
       if(last) body.querySelector('[data-k="amount"]').value=String(last).replace(".",",");
       const sa=S.defaults.salaryAccount; const b=body.querySelector(`.seg[data-k="account"] button[data-v="${sa}"]`); if(b){ body.querySelectorAll('.seg[data-k="account"] button').forEach(x=>x.classList.remove("on")); b.classList.add("on"); }
     } };
-  kindSeg.addEventListener("change",sync);
+  kindSeg.addEventListener("change",sync); waitSeg.addEventListener("change",sync);
   body.querySelectorAll("#refundList .row").forEach(r=>{ r.onclick=()=>{ body.querySelectorAll("#refundList .row").forEach(x=>x.classList.remove("on")); r.classList.add("on");
     if(r.dataset.ref){ const inp=body.querySelector('[data-k="amount"]'); if(!num(inp.value)) inp.value=r.dataset.left.replace(".",","); } sync(); }; });
   if(it&&it.kind==="in"){ const r=body.querySelector(`#refundList .row[data-ref="${it.refundOf||""}"]`); if(r) r.classList.add("on"); }
@@ -2752,7 +2762,7 @@ function adviceData(ym){
     if(up) now.push(`${up.c.name} : ${eur0(up.v)} déjà ce mois-ci contre ${eur0(up.p)} sur tout ${pName}. Ça vaut le coup de regarder ce qui a changé.`);
     const down=cats.map(x=>Object.assign(x,{d:x.p-x.v})).filter(x=>t>=20&&x.d>20).sort((a,b)=>b.d-a.d)[0];
     if(down) now.push(`Bravo sur ${down.c.name} : ${eur0(down.v)} contre ${eur0(down.p)} en ${pName}. La différence peut partir directement à l'épargne.`); }
-  const small=M.ops.filter(o=>o.kind==="out"&&!o.proj&&(+o.amount||0)>0&&(+o.amount||0)<15);
+  const small=M.ops.filter(o=>o.kind==="out"&&!o.proj&&!o.waitRef&&(+o.amount||0)>0&&(+o.amount||0)<15);
   if(small.length>=6){ const tot=small.reduce((s,o)=>s+(+o.amount||0),0); now.push(`${small.length} petits achats de moins de 15 € ce mois-ci, pour ${eur0(tot)} au total. Un par un ils ne se sentent pas, ensemble ils pèsent.`); }
   if(C.courses>0){ const wk=Math.max(1,saturdays(ymNow()).filter(d=>d>=new Date().getDate()).length); if(C.spentCourses>C.courses) now.push(`Courses : ${eur0(C.spentCourses-C.courses)} au-dessus de l'enveloppe. Pour les ${left} jours qui restent, on vide d'abord le frigo et les placards avant de racheter.`);
     else if(C.coursesLeft>0.5&&left>3) now.push(`Courses : ${eur0(C.coursesLeft)} pour ${wk} semaine${wk>1?"s":""}, donc ${eur0(C.coursesLeft/wk)} par samedi. Une liste faite avant de partir, c'est souvent 10 à 15 % de moins sur le ticket.`); }
