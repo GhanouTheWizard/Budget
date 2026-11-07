@@ -432,7 +432,7 @@ body.gated{overflow:hidden}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v38 · 5 novembre 2026";
+const APP_VERSION="v39 · 7 novembre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -514,33 +514,58 @@ function ymNow(){ const d=new Date(); return d.getFullYear()+"-"+String(d.getMon
 function ymShift(ym,n){ let [y,m]=ym.split("-").map(Number); m+=n; while(m>12){m-=12;y++;} while(m<1){m+=12;y--;} return y+"-"+String(m).padStart(2,"0"); }
 function ymParts(ym){ const [y,m]=ym.split("-").map(Number); return {y,m}; }
 function daysIn(ym){ const {y,m}=ymParts(ym); return new Date(y,m,0).getDate(); }
-/* samedis du mois (jour des courses) */
+/* samedis du mois (jour des courses) — calendrier simple, gardé pour la conversion des anciens réglages */
 function saturdays(ym){ const {y,m}=ymParts(ym), n=daysIn(ym), r=[]; for(let d=1;d<=n;d++) if(new Date(y,m-1,d).getDay()===6) r.push(d); return r; }
+/* ===== mois des courses =====
+   Les courses se font le samedi, une semaine va du samedi au vendredi.
+   Une semaine compte dans le mois où tombent la plupart de ses jours : un samedi tombant dans les 3 derniers jours
+   du mois (ex. samedi 31 octobre) ouvre déjà la 1re semaine du mois suivant. */
+function dkey(y,m,d){ return y*10000+m*100+d; }
+function keyOf(dt){ return dkey(dt.getFullYear(),dt.getMonth()+1,dt.getDate()); }
+function todayKey(){ return keyOf(new Date()); }
+function addDays(dt,n){ const x=new Date(dt); x.setDate(x.getDate()+n); return x; }
+function fmtD(dt){ return dt.getDate()+(dt.getDate()===1?"er":"")+" "+MSHORT[dt.getMonth()]; }
+function coursesSats(ym){
+  const r=[], pm=ymShift(ym,-1), P=ymParts(pm), Y=ymParts(ym), pd=daysIn(pm), dim=daysIn(ym);
+  for(let d=pd-2; d<=pd; d++){ const dt=new Date(P.y,P.m-1,d); if(dt.getDay()===6) r.push(dt); }
+  for(let d=1; d<=dim-3; d++){ const dt=new Date(Y.y,Y.m-1,d); if(dt.getDay()===6) r.push(dt); }
+  return r;
+}
+function coursesRange(ym){ const s=coursesSats(ym); return {from:s[0], to:addDays(coursesSats(ymShift(ym,1))[0],-1)}; }
+/* courses dépensées entre deux dates (clés aaaammjj), tous mois confondus, remboursements déduits */
+function coursesSpent(k1,k2){
+  let s=0, ym=Math.floor(k1/10000)+"-"+String(Math.floor(k1/100)%100).padStart(2,"0");
+  const last=Math.floor(k2/10000)+"-"+String(Math.floor(k2/100)%100).padStart(2,"0");
+  while(ym<=last){ const M=S.months[ym];
+    if(M&&Array.isArray(M.ops)){ const {y,m}=ymParts(ym), ref={};
+      M.ops.forEach(o=>{ if(o.kind==="in"&&o.refundOf) ref[o.refundOf]=(ref[o.refundOf]||0)+(+o.amount||0); });
+      M.ops.forEach(o=>{ if(o.kind!=="out"||o.proj||o.waitRef||cat(o.category).pocket!=="courses") return;
+        const k=dkey(y,m,o.day||1); if(k>=k1&&k<=k2) s+=Math.max(0,(+o.amount||0)-(ref[o.id]||0)); }); }
+    ym=ymShift(ym,1); }
+  return s;
+}
 function coursesWeek(C,ym){
-  const sats=saturdays(ym), n=sats.length||1, weekly=C.courses/n, cur_=ym===ymNow(), t=cur_?Math.min(new Date().getDate(),daysIn(ym)):0;
-  const left=sats.filter(d=>d>=t).length, lastSat=sats.filter(d=>d<=t).pop()||0;
-  let wkSpent=0; if(cur_){ const M=month(ym); M.ops.forEach(o=>{ if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&(o.day||1)>=(lastSat||1)&&(o.day||1)<=t) wkSpent+=opNet(o); }); }
-  const next=sats.find(d=>d>=t);
-  return {sats,n,weekly,left,perLeft:left?C.coursesLeft/left:0,wkSpent,next,cur:cur_};
+  const sats=coursesSats(ym), n=sats.length||1, weekly=C.courses/n, cur_=ym===ymNow(), tk=todayKey();
+  const W=coursesWeeks(C,ym), w=W.find(x=>x.now);
+  const left=sats.filter(dt=>keyOf(dt)>=tk).length, next=sats.find(dt=>keyOf(dt)>=tk);
+  return {sats,n,weekly,left,perLeft:left?C.coursesLeft/left:0,wkSpent:w?w.s:0,next,cur:cur_,done:cur_&&tk>keyOf(coursesRange(ym).to)};
 }
 /* une enveloppe par semaine de courses (du samedi au vendredi) */
 function coursesWeeks(C,ym){
-  const sats=saturdays(ym), dim=daysIn(ym), M=month(ym), wb=weekBudgets(ym,C.courses);
-  const t=ym===ymNow()?new Date().getDate():(ym<ymNow()?dim+1:0);
-  return sats.map((d,i)=>{ const from=i===0?1:d, to=i<sats.length-1?sats[i+1]-1:dim; let sp=0;
-    M.ops.forEach(o=>{ const day=o.day||1; if(o.kind==="out"&&!o.proj&&cat(o.category).pocket==="courses"&&day>=from&&day<=to) sp+=opNet(o); });
-    return {i,sat:d,from,to,b:wb[i],s:sp,now:t>=from&&t<=to,past:t>to}; });
+  const sats=coursesSats(ym), wb=weekBudgets(ym,C.courses), tk=todayKey(), end=coursesRange(ym).to;
+  return sats.map((dt,i)=>{ const to=i<sats.length-1?addDays(sats[i+1],-1):end, k1=keyOf(dt), k2=keyOf(to);
+    return {i,sat:dt,from:dt,to,b:wb[i],s:coursesSpent(k1,k2),now:tk>=k1&&tk<=k2,past:tk>k2}; });
 }
 /* budget de chaque semaine : part égale + ajustements (M.wkAdj), le total reste celui du mois */
 function weekBudgets(ym,total){
-  const n=saturdays(ym).length||1, base=total/n, adj=(month(ym).wkAdj)||[];
+  const n=coursesSats(ym).length||1, base=total/n, adj=(month(ym).wkAdj)||[];
   const b=[]; for(let i=0;i<n;i++) b.push(Math.max(0,base+(+adj[i]||0)));
   const sum=b.reduce((a,x)=>a+x,0); if(sum>0.005&&Math.abs(sum-total)>0.005) return b.map(x=>x*total/sum);
   return b;
 }
 /* change la semaine i de d euros et compense sur les semaines suivantes (ou précédentes si c'est la dernière) */
 function shiftWeek(i,d){
-  const M=month(cur), n=saturdays(cur).length; if(n<2){ toast("Un seul samedi ce mois-ci : modifie l'enveloppe du mois"); return; }
+  const M=month(cur), n=coursesSats(cur).length; if(n<2){ toast("Un seul samedi ce mois-ci : modifie l'enveloppe du mois"); return; }
   const b=weekBudgets(cur,+M.courses||0);
   if(d<0) d=-Math.min(-d,b[i]);
   let rest=d; const order=[]; for(let k=i+1;k<n;k++) order.push(k); for(let k=i-1;k>=0;k--) order.push(k);
@@ -551,31 +576,33 @@ function shiftWeek(i,d){
   persist(); const y=scrollY; render(); scrollTo(0,y);
 }
 function editWeek(i){
-  const M=month(cur), sats=saturdays(cur), b=weekBudgets(cur,+M.courses||0);
-  openSheet("Courses du samedi "+sats[i],"Ce que tu ajoutes ou enlèves ici est repris sur la semaine d'après, pour que le total reste celui du mois ("+eur0(+M.courses||0)+").",
+  const M=month(cur), sats=coursesSats(cur), b=weekBudgets(cur,+M.courses||0);
+  openSheet("Courses du samedi "+fmtD(sats[i]),"Ce que tu ajoutes ou enlèves ici est repris sur la semaine d'après, pour que le total reste celui du mois ("+eur0(+M.courses||0)+").",
     [{k:"amount",label:"Budget de la semaine",type:"money"}],{amount:frAmt(b[i])},
     d=>{ setTimeout(()=>shiftWeek(i,r2(Math.max(0,num(d.amount))-b[i])),0); });
 }
 function resetWeeks(){ delete month(cur).wkAdj; persist(); const y=scrollY; render(); scrollTo(0,y); }
 function weeksCard(C,ym){
   if(!(C.courses>0)) return "";
-  const W=coursesWeeks(C,ym), mo=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."][ymParts(ym).m-1];
+  const W=coursesWeeks(C,ym);
   return `<div class="card"><div class="sec"><span class="eyebrow">Courses semaine par semaine</span><span class="num" style="font-size:12.5px;color:var(--ink-2)">${eur0(C.courses/W.length)} / semaine en moyenne</span></div>
   ${W.map(w=>{ const lv=capLevel(w.s,w.b), pc=w.b>0?Math.min(100,w.s/w.b*100):0, d=w.s-w.b;
-    return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${w.sat} ${mo}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${w.from} au ${w.to} ${mo}</small></span><span style="display:flex;align-items:center;gap:6px;flex:none">
+    return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${fmtD(w.sat)}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${fmtD(w.from)} au ${fmtD(w.to)}</small></span><span style="display:flex;align-items:center;gap:6px;flex:none">
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},-1)" aria-label="Moins">−</button>
       <span class="a" style="min-width:64px;text-align:center" onclick="editWeek(${w.i})">${eurX(w.b)}</span>
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},1)" aria-label="Plus">+</button></span></div>
     <div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div>
     <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(w.s)} dépensés · ${d>0.5?`<b style="color:${LV_COL[3]||"#c33"}">${eur0(d)} de trop</b>`:`reste ${eur0(-d)}`}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(pc)+" %"}</span></div></div>`; }).join("")}
-  <div class="hint">Avec − et + tu bouges une semaine d'un euro ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Les achats faits avant le premier samedi comptent dans la première semaine.${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
+  <div class="hint">Avec − et + tu bouges une semaine d'un euro ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Une semaine compte dans le mois où tombent la plupart de ses jours : un samedi en toute fin de mois ouvre déjà le mois suivant.${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
 }
 function coursesSub(C,ym){
   if(!(C.courses>0)) return "";
   const w=coursesWeek(C,ym);
-  let s=`${w.n} samedis ce mois · ${eur0(w.weekly)} par semaine en moyenne`;
-  if(w.cur){
-    if(w.left>0) s+=`<br>${w.next===new Date().getDate()?"Aujourd'hui":"Samedi "+w.next} : ${eur0(w.perLeft)} par semaine sur les ${w.left} samedi${w.left>1?"s":""} restant${w.left>1?"s":""}`;
+  const r=coursesRange(ym);
+  let s=`${w.n} samedis, du ${fmtD(r.from)} au ${fmtD(r.to)} · ${eur0(w.weekly)} par semaine en moyenne`;
+  if(w.done) s+=`<br>Semaines du mois terminées : les courses d'aujourd'hui comptent déjà dans ${MONTHS[ymParts(ymShift(ym,1)).m-1]}`;
+  else if(w.cur){
+    if(w.left>0) s+=`<br>${keyOf(w.next)===todayKey()?"Aujourd'hui":"Samedi "+fmtD(w.next)} : ${eur0(w.perLeft)} par semaine sur les ${w.left} samedi${w.left>1?"s":""} restant${w.left>1?"s":""}`;
     if(w.wkSpent>0.5) s+=`<br>Cette semaine : ${eur0(w.wkSpent)} dépensés`;
   }
   return s;
@@ -664,7 +691,7 @@ function calc(ym){
   // remboursements liés : net par opération
   const refundsOf={};
   M.ops.filter(o=>o.kind==="in"&&o.refundOf).forEach(o=>{ refundsOf[o.refundOf]=(refundsOf[o.refundOf]||0)+(+o.amount||0); });
-  let spentCourses=0, spentRepas=0, nRepas=0, extraTot=0, toRefund=0, nToRefund=0, projSpentM=0, waitTot=0, nWait=0;
+  let spentCoursesCash=0, spentRepas=0, nRepas=0, extraTot=0, toRefund=0, nToRefund=0, projSpentM=0, waitTot=0, nWait=0;
   const byCat={};
   M.ops.forEach(o=>{
     const a=g(o.account), v=+o.amount||0;
@@ -676,7 +703,7 @@ function calc(ym){
       if(o.proj){ projSpentM+=net; return; }   // achat d'un projet anticipé : payé par sa réserve, hors plafonds
       byCat[o.category]=(byCat[o.category]||0)+net;
       if(cat(o.category).refund && net>0.005){ toRefund+=net; nToRefund++; }
-      if(p==="courses") spentCourses+=net; else if(p==="repas"){ spentRepas+=net; nRepas++; } else a.autres+=net;
+      if(p==="courses") spentCoursesCash+=net; else if(p==="repas"){ spentRepas+=net; nRepas++; } else a.autres+=net;
     }else{
       a.inn+=v; if(o.seen) a.innSeen+=v; else { a.pendingIn+=v; a.nPending++; }
       if(!o.refundOf){ a.extra+=v; extraTot+=v; }
@@ -698,19 +725,21 @@ function calc(ym){
     fixed += a.charges; prot += a.secLeft; secTot += a.sec;
   });
   const courses=+M.courses||0, repas=(+M.repasCount||0)*(+M.repasUnit||0);
-  const coursesLeft=Math.max(0,courses-spentCourses), repasLeft=Math.max(0,repas-spentRepas);
+  // enveloppe courses : sur les semaines de courses du mois (du 1er samedi au vendredi avant celui du mois suivant), finie = libérée
+  const cr=coursesRange(ym), crTo=keyOf(cr.to), spentCourses=coursesSpent(keyOf(cr.from),crTo);
+  const coursesLeft=todayKey()>crTo?0:Math.max(0,courses-spentCourses), repasLeft=Math.max(0,repas-spentRepas);
   prot += coursesLeft + repasLeft;
   // réserves des projets anticipés (argent qui doit rester sur les comptes)
   let projRes=0; projList().forEach(p=>{ const r=projReserve(p,ym); projRes+=r; if(A[p.account]) A[p.account].projRes=(A[p.account].projRes||0)+r; });
   prot += projRes;
-  const spentAll = spentCourses + spentRepas + Object.values(A).reduce((t,a)=>t+a.autres,0);
+  const spentAll = spentCoursesCash + spentRepas + Object.values(A).reduce((t,a)=>t+a.autres,0);
   const savedNet = sum(M.moves, m=>(m.kind==="in"?1:-1)*(+m.amount||0));
   const epargnePossible = dispo - fixed - spentAll - projSpentM - prot;
   const reste = epargnePossible - savedNet;
   const salaryTot=sum(M.salary), recvTot=sum(M.receivables);
   const startTot=Object.values(A).reduce((t,a)=>t+a.start,0);
   const pendingTot=Object.values(A).reduce((t,a)=>t+a.pending,0), nPending=Object.values(A).reduce((t,a)=>t+a.nPending,0);
-  return {A,dispo,fixed,spentAll,prot,savedNet,epargnePossible,reste,courses,spentCourses,coursesLeft,repas,spentRepas,repasLeft,nRepas,
+  return {A,dispo,fixed,spentAll,prot,savedNet,epargnePossible,reste,courses,spentCourses,spentCoursesCash,coursesLeft,repas,spentRepas,repasLeft,nRepas,
           salaryTot,recvTot,extraTot,startTot,secTot,pendingTot,nPending,byCat,toRefund,nToRefund,projSpentM,projRes,waitTot,nWait};
 }
 
@@ -1296,8 +1325,8 @@ function vStats(){
   window._pace={cum,dim,t,B:0,X,pl,W,pr};
 
   // 2. où part l'argent
-  const inc=C.salaryTot+C.recvTot+C.extraTot, other=C.spentAll-C.spentCourses;
-  const parts=[{n:"Prélèvements",v:C.fixed,c:G.c1},{n:"Courses",v:C.spentCourses,c:G.c2},{n:"Autres dépenses",v:other,c:G.c4}];
+  const inc=C.salaryTot+C.recvTot+C.extraTot, other=C.spentAll-C.spentCoursesCash;
+  const parts=[{n:"Prélèvements",v:C.fixed,c:G.c1},{n:"Courses",v:C.spentCoursesCash,c:G.c2},{n:"Autres dépenses",v:other,c:G.c4}];
   if(C.projSpentM>0) parts.push({n:"Projets anticipés",v:C.projSpentM,c:G.c3});
   const used=parts.reduce((s,p)=>s+p.v,0), rest=inc-used;
   if(rest>0) parts.push({n:"Reste",v:rest,c:G.rest});
@@ -1351,7 +1380,7 @@ function vStats(){
     <span class="eyebrow">Dépenses du mois · ${esc(mName)}</span>
     <div class="stat">
       <div><span class="eyebrow">Dépensé${isNow?" au "+t:""}</span><div class="v" style="${over?"color:var(--alert)":""}">${eur0(spent)}</div>
-        <div class="hint" style="margin-top:2px">courses ${eur0(C.spentCourses)} · autres ${eur0(spent-C.spentCourses)}</div></div>
+        <div class="hint" style="margin-top:2px">courses ${eur0(C.spentCoursesCash)} · autres ${eur0(spent-C.spentCoursesCash)}</div></div>
       <div><span class="eyebrow">${B>0&&spent<=B?"Reste sur "+eur0(B):"Budget du mois"}</span><div class="v" style="color:${over?"var(--alert)":"var(--teal)"}">${B>0?(over?"−"+eur0(spent-B):eur0(B-spent)):"—"}</div>
         ${isNow?`<div class="hint" style="margin-top:2px">${Math.max(1,dim-t+1)} jours restants</div>`:""}</div>
     </div>
@@ -2001,7 +2030,7 @@ function editReceivable(id){
 }
 function editCourses(){
   const M=month(cur), dim=daysIn(cur);
-  openSheet("Enveloppe courses",`Budget courses pour tout le mois, payé par ${esc(accName(S.defaults.coursesAccount))}. ${saturdays(cur).length} samedis ce mois, soit ${eur0((+M.courses||0)/(saturdays(cur).length||1))} par semaine.`,
+  openSheet("Enveloppe courses",`Budget courses pour tout le mois, payé par ${esc(accName(S.defaults.coursesAccount))}. ${coursesSats(cur).length} samedis de courses (du ${fmtD(coursesRange(cur).from)} au ${fmtD(coursesRange(cur).to)}), soit ${eur0((+M.courses||0)/(coursesSats(cur).length||1))} par semaine.`,
     [{k:"amount",label:"Budget du mois",type:"money",ph:"450,00"},{k:"scope",label:"Appliquer",type:"seg",options:[{v:"m",t:"Ce mois"},{v:"a",t:"Et les suivants"}]}],
     {amount:frAmt(M.courses),scope:"m"},
     d=>{ const a=Math.max(0,r2(num(d.amount))); M.courses=a; if(d.scope==="a") S.defaults.courses=a; });
@@ -2242,7 +2271,13 @@ function importData(){ const inp=document.createElement("input"); inp.type="file
   inp.click(); }
 function wipe(){ openSheet("Tout effacer",Sync.on?"Définitif, et l'effacement part aussi sur l'autre téléphone. Désactive d'abord la synchronisation pour n'effacer que celui-ci.":"Définitif.",[{k:"c",label:"Tape EFFACER",type:"text"}],{},d=>{ if(d.c.trim().toUpperCase()!=="EFFACER"){toast("Confirmation incorrecte");return false;} S=blank(); cur=ymNow(); tab="reglages"; }); }
 function migrate(d){ if(!d.defaults) d.defaults=blank().defaults; if(!d.categories||!d.categories.length) d.categories=blank().categories; d.accounts.forEach(a=>{ if(a.overdraft==null) a.overdraft=150; });
-  for(const ym in d.months){ const M=d.months[ym]; M.steps=M.steps||{depart:false,repartition:false,cloture:false}; ["salary","receivables","charges","transfers","ops","moves","adjust"].forEach(k=>{ if(!Array.isArray(M[k])) M[k]=[]; }); M.start=M.start||{}; M.securite=M.securite||{}; } return d; }
+  for(const ym in d.months){ const M=d.months[ym]; M.steps=M.steps||{depart:false,repartition:false,cloture:false}; ["salary","receivables","charges","transfers","ops","moves","adjust"].forEach(k=>{ if(!Array.isArray(M[k])) M[k]=[]; }); M.start=M.start||{}; M.securite=M.securite||{}; }
+  // v39 : semaines de courses calées sur le mois des courses (samedi de fin de mois = mois suivant) → on garde chaque réglage sur son samedi
+  if(!d.wkV){ for(const ym in d.months){ const M=d.months[ym]; if(!Array.isArray(M.wkAdj)||!M.wkAdj.length) continue;
+      const {y,m}=ymParts(ym), old=saturdays(ym).map(x=>dkey(y,m,x)), nw=coursesSats(ym).map(keyOf);
+      M.wkAdj=nw.map(k=>{ const j=old.indexOf(k); return j<0?0:(+M.wkAdj[j]||0); }); }
+    d.wkV=2; }
+  return d; }
 
 function fromBudget1(d){
   const N=blank();
@@ -2764,7 +2799,7 @@ function adviceData(ym){
     if(down) now.push(`Bravo sur ${down.c.name} : ${eur0(down.v)} contre ${eur0(down.p)} en ${pName}. La différence peut partir directement à l'épargne.`); }
   const small=M.ops.filter(o=>o.kind==="out"&&!o.proj&&!o.waitRef&&(+o.amount||0)>0&&(+o.amount||0)<15);
   if(small.length>=6){ const tot=small.reduce((s,o)=>s+(+o.amount||0),0); now.push(`${small.length} petits achats de moins de 15 € ce mois-ci, pour ${eur0(tot)} au total. Un par un ils ne se sentent pas, ensemble ils pèsent.`); }
-  if(C.courses>0){ const wk=Math.max(1,saturdays(ymNow()).filter(d=>d>=new Date().getDate()).length); if(C.spentCourses>C.courses) now.push(`Courses : ${eur0(C.spentCourses-C.courses)} au-dessus de l'enveloppe. Pour les ${left} jours qui restent, on vide d'abord le frigo et les placards avant de racheter.`);
+  if(C.courses>0){ const wk=Math.max(1,coursesSats(ymNow()).filter(dt=>keyOf(dt)>=todayKey()).length); if(C.spentCourses>C.courses) now.push(`Courses : ${eur0(C.spentCourses-C.courses)} au-dessus de l'enveloppe. Pour les ${left} jours qui restent, on vide d'abord le frigo et les placards avant de racheter.`);
     else if(C.coursesLeft>0.5&&left>3) now.push(`Courses : ${eur0(C.coursesLeft)} pour ${wk} semaine${wk>1?"s":""}, donc ${eur0(C.coursesLeft/wk)} par samedi. Une liste faite avant de partir, c'est souvent 10 à 15 % de moins sur le ticket.`); }
   if(inc>0&&C.fixed/inc>0.5){ const big=M.charges.slice().sort((a,b)=>(+b.amount||0)-(+a.amount||0)).slice(0,3).map(c=>c.label).join(", ");
     now.push(`Les prélèvements fixes prennent ${Math.round(C.fixed/inc*100)} % des rentrées. Les plus lourds : ${big}. Un appel pour renégocier l'un d'eux (assurance, box, téléphone) fait gagner tous les mois.`); }
@@ -2807,9 +2842,9 @@ function adviceCard(){
 // conseils concrets, calculés sur les vrais chiffres du mois en cours
 function tipsFor(mood){
   const ym=ymNow(); if(!S.months[ym]) return ["Commence le mois en notant les soldes du 1er : l'appli pourra alors te dire où tu en es chaque jour."];
-  const M=month(ym), C=calc(ym), dim=daysIn(ym), t=Math.min(new Date().getDate(),dim), left=dim-t+1, weeks=Math.max(1,saturdays(ym).filter(d=>d>=t).length);
+  const M=month(ym), C=calc(ym), dim=daysIn(ym), t=Math.min(new Date().getDate(),dim), left=dim-t+1, weeks=Math.max(1,coursesSats(ym).filter(dt=>keyOf(dt)>=todayKey()).length);
   const T={ok:[],watch:[],tough:[]}, all=(x)=>{T.ok.push(x);T.watch.push(x);T.tough.push(x);};
-  if(C.courses>0&&C.coursesLeft>0.5) all(`Il reste ${eur0(C.coursesLeft)} pour les courses, ${weeks>1?`soit environ ${eur0(C.coursesLeft/weeks)} par samedi jusqu'à la fin du mois.`:"pour finir le mois tranquillement."}`);
+  if(C.courses>0&&C.coursesLeft>0.5) all(`Il reste ${eur0(C.coursesLeft)} pour les courses, ${weeks>1?`soit environ ${eur0(C.coursesLeft/weeks)} par samedi d'ici le dernier samedi du mois.`:"pour finir le mois tranquillement."}`);
   S.categories.forEach(c=>{ const b=+c.budget||0, v=C.byCat[c.id]||0; if(!b||c.pocket==='courses'||c.pocket==='repas') return;
     if(v>b) T.tough.push(`${c.name} : ${eur0(v)} pour un plafond de ${eur0(b)}. On met cette catégorie en pause jusqu'à la fin du mois, c'est le geste le plus efficace.`),T.watch.push(`${c.name} a dépassé son plafond (${eur0(v)} sur ${eur0(b)}). Le mois prochain, ajuste le plafond ou lève le pied dès le 20.`);
     else if(v>=0.8*b) T.watch.push(`${c.name} : ${eur0(v)} déjà utilisés sur ${eur0(b)}. Il reste ${eur0(b-v)} pour ${left} jour${left>1?"s":""}, ça se tient si on y va doucement.`);
