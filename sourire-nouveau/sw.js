@@ -1,4 +1,4 @@
-const CACHE = "sourire-nouveau-v1";
+const CACHE = "sourire-nouveau-v2";
 const FILES = ["./", "./index.html", "./manifest.webmanifest", "./icon-180.png", "./icon-512.png"];
 self.addEventListener("install", e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 // On ne touche qu'aux caches de cette version d'essai, jamais à ceux de l'appli principale.
