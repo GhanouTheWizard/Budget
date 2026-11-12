@@ -596,7 +596,7 @@ nav .badge{top:-4px;left:auto;right:6px;background:#FF5C7A}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v41 · 11 novembre 2026";
+const APP_VERSION="v42 · 12 novembre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -723,8 +723,11 @@ function coursesWeek(C,ym){
 /* une enveloppe par semaine de courses (du samedi au vendredi) */
 function coursesWeeks(C,ym){
   const sats=coursesSats(ym), wb=weekBudgets(ym,C.courses), tk=todayKey(), rg=coursesRange(ym);
+  let carry=0;   // dépassement reporté : ce qui dépasse une semaine est retiré de la suivante (et ainsi de suite si elle ne suffit pas)
   return sats.map((dt,i)=>{ const from=i===0?rg.from:dt, to=i<sats.length-1?addDays(sats[i+1],-1):rg.to, k1=keyOf(from), k2=keyOf(to);
-    return {i,sat:dt,from,to,b:wb[i],s:coursesSpent(k1,k2),now:tk>=k1&&tk<=k2,past:tk>k2}; });
+    const plan=wb[i], cut=Math.min(plan,carry), b=plan-cut, sp=coursesSpent(k1,k2);
+    carry=carry-cut+Math.max(0,sp-b);
+    return {i,sat:dt,from,to,plan,cut,b,s:sp,now:tk>=k1&&tk<=k2,past:tk>k2}; });
 }
 /* budget de chaque semaine : part égale + ajustements (M.wkAdj), le total reste celui du mois */
 /* part de base de chaque semaine : au prorata de ses jours dans le mois (une semaine de 3 jours en fin de mois reçoit 3/7 d'une semaine pleine) */
@@ -750,7 +753,7 @@ function shiftWeek(i,d){
 }
 function editWeek(i){
   const M=month(cur), sats=coursesSats(cur), b=weekBudgets(cur,+M.courses||0);
-  openSheet("Courses du samedi "+fmtD(sats[i]),"Ce que tu ajoutes ou enlèves ici est repris sur la semaine d'après, pour que le total reste celui du mois ("+eur0(+M.courses||0)+").",
+  openSheet("Courses du samedi "+fmtD(sats[i]),"Ce que tu ajoutes ou enlèves ici est repris sur la semaine d'après, pour que le total reste celui du mois ("+eur0(+M.courses||0)+"). C'est le budget prévu, avant le report d'un éventuel dépassement de la semaine d'avant.",
     [{k:"amount",label:"Budget de la semaine",type:"money"}],{amount:frAmt(b[i])},
     d=>{ setTimeout(()=>shiftWeek(i,r2(Math.max(0,num(d.amount))-b[i])),0); });
 }
@@ -762,11 +765,12 @@ function weeksCard(C,ym){
   ${W.map(w=>{ const lv=capLevel(w.s,w.b), pc=w.b>0?Math.min(100,w.s/w.b*100):0, d=w.s-w.b;
     return `<div class="cap" style="${w.now?"":"opacity:"+(w.past?.75:.9)}"><div class="h"><span style="flex:1">${w.now?"<b>":""}Samedi ${fmtD(w.sat)}${w.now?"</b> · cette semaine":""}<small style="display:block;font-size:11.5px;color:var(--ink-3)">du ${fmtD(w.from)} au ${fmtD(w.to)}</small></span><span style="display:flex;align-items:center;gap:6px;flex:none">
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},-1)" aria-label="Moins">−</button>
-      <span class="a" style="min-width:64px;text-align:center" onclick="editWeek(${w.i})">${eurX(w.b)}</span>
+      <span class="a" style="min-width:64px;text-align:center;line-height:1.15" onclick="editWeek(${w.i})">${eurX(w.b)}${w.cut>0.005?`<small style="display:block;font-size:10.5px;font-weight:500;color:var(--ink-3)">prévu ${eur0(w.plan)}</small>`:""}</span>
       <button class="chk" style="width:30px;height:30px;color:var(--ink);font-size:17px" onclick="shiftWeek(${w.i},1)" aria-label="Plus">+</button></span></div>
     <div class="bar"><i style="background:${LV_COL[lv]}" data-w="${pc.toFixed(1)}"></i></div>
-    <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(w.s)} dépensés · ${d>0.5?`<b style="color:${LV_COL[3]||"#c33"}">${eur0(d)} de trop</b>`:`reste ${eur0(-d)}`}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(pc)+" %"}</span></div></div>`; }).join("")}
-  <div class="hint">Avec − et + tu bouges une semaine d'un euro ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Chaque semaine porte le nom de son samedi ; seules les dépenses du mois comptent (la 1re semaine démarre le 1er, la dernière s'arrête à la fin du mois).${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
+    ${w.cut>0.005?`<div class="hint" style="margin-top:5px;color:${LV_COL[2]||"#c80"}">− ${eurX(w.cut)} : dépassement de la semaine d'avant reporté ici</div>`:""}
+    <div class="hint" style="margin-top:5px;display:flex;justify-content:space-between"><span>${eur0(w.s)} dépensés · ${d>0.5?`<b style="color:${LV_COL[3]||"#c33"}">${eur0(d)} de trop</b>${w.i<W.length-1?" (repris sur samedi "+fmtD(W[w.i+1].sat)+")":""}`:`reste ${eur0(-d)}`}</span><span style="color:${LV_COL[lv]};font-weight:600">${lv?LV_TXT[lv]:Math.round(pc)+" %"}</span></div></div>`; }).join("")}
+  <div class="hint">Si tu dépasses une semaine, le surplus est retiré automatiquement de la semaine d'après (et de la suivante si elle ne suffit pas). Avec − et + tu bouges une semaine d'un euro ; touche le montant pour le taper. La différence est reprise sur la semaine d'après (sur la précédente pour le dernier samedi), le total du mois ne bouge pas. Chaque semaine porte le nom de son samedi ; seules les dépenses du mois comptent (la 1re semaine démarre le 1er, la dernière s'arrête à la fin du mois).${(month(ym).wkAdj||[]).some(x=>Math.abs(+x)>0.005)?` <a href="#" onclick="resetWeeks();return false">Remettre en parts égales</a>`:""}</div></div>`;
 }
 function coursesSub(C,ym){
   if(!(C.courses>0)) return "";
