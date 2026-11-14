@@ -437,6 +437,18 @@ function apercu(){
   ]};
 }
 
+/* mise à jour automatique : si une version plus récente est en ligne, on recharge */
+const VERSION="6";
+async function verifierVersion(){
+  try{
+    const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"});
+    const v=String((await r.json()).v||"");
+    if(v&&v!==VERSION&&new URLSearchParams(location.search).get("v")!==v) location.replace(location.pathname+"?v="+encodeURIComponent(v));
+  }catch(e){}
+}
+verifierVersion();
+document.addEventListener("visibilitychange",()=>{if(!document.hidden)verifierVersion()});
+
 /* init */
 humeurs();
 puces("cats",CATS,"cats",true);
