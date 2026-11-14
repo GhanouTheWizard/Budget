@@ -208,27 +208,37 @@ async function livresRecents(term: string) {
   } catch { return []; }
 }
 
-// Goodreads : une étagère publique, lue par son flux RSS
-const simple = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+// Goodreads : une étagère publique, lue par le widget d'étagère (les flux RSS ont été supprimés fin octobre 2026).
+// Le widget renvoie les 100 livres les plus récents de l'étagère.
+const simple = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9\u0600-\u06FF]+/g, " ").trim();
 let statutGoodreads = 0;
 async function etagere(id: string, nom: string) {
   try {
-    const r = await fetch(`https://www.goodreads.com/review/list_rss/${id}?shelf=${nom}&per_page=200`, {
-      headers: { "User-Agent": NAV, Accept: "application/rss+xml, application/xml, text/xml, */*", "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" },
-    });
+    const u = new URL(`https://www.goodreads.com/review/custom_widget/${id}`);
+    u.searchParams.set("shelf", nom);
+    u.searchParams.set("num_books", "100");
+    u.searchParams.set("sort", "date_added");
+    u.searchParams.set("order", "d");
+    // Goodreads garde en cache par widget_id : on en change à chaque fois pour avoir la liste du moment
+    u.searchParams.set("widget_id", `${nom}-${Date.now()}`);
+    const r = await fetch(u, { headers: { "User-Agent": NAV, "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" } });
     statutGoodreads = r.status;
-    const xml = await r.text();
-    console.log("goodreads", nom, r.status, xml.length, (xml.match(/<item>/g) || []).length);
-    if (!r.ok) return [];
-    const champ = (bloc: string, balise: string) => {
-      const m = bloc.match(new RegExp(`<${balise}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${balise}>`));
-      return m ? propre(m[1].trim()) : "";
-    };
-    if (!/<rss|<channel/.test(xml)) statutGoodreads = -1; // réponse reçue, mais ce n'est pas un flux (page de connexion ou de blocage)
-    return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => ({
-      id: champ(m[1], "book_id"), titre: champ(m[1], "title"), auteur: champ(m[1], "author_name"),
-      affiche: champ(m[1], "book_large_image_url") || champ(m[1], "book_image_url") || null, annee: champ(m[1], "book_published"),
-    })).filter((b) => b.titre);
+    const script = await r.text();
+    const brut = script.match(/var widget_code = '([\s\S]*?)'\n/)?.[1];
+    const html = brut ? brut.replace(/\\n/g, "\n").replace(/\\(.)/g, "$1") : "";
+    if (r.ok && !brut) statutGoodreads = -1; // réponse reçue, mais pas le contenu attendu
+    const livres = html.split(/class="gr_custom_each_container/).slice(1).map((bloc) => {
+      const lien = bloc.match(/gr_custom_book_container[^>]*>\s*(<a[^>]*>)/)?.[1] || "";
+      const couverture = bloc.match(/<img[^>]*src="([^"]+)"/)?.[1] || "";
+      return {
+        id: couverture.match(/\/(\d+)(?:\._[^/]*)?\.\w+$/)?.[1] || "",
+        titre: propre((lien.match(/title="([^"]*)"/)?.[1] || "").trim()),
+        auteur: propre((bloc.match(/gr_custom_author[^>]*>[\s\S]*?<a[^>]*>([^<]+)<\/a>/)?.[1] || "").trim()),
+        affiche: couverture ? couverture.replace(/\._S[XY]\d+_/i, "") : null, annee: "",
+      };
+    }).filter((b) => b.titre);
+    console.log("goodreads", nom, r.status, script.length, livres.length);
+    return livres;
   } catch (e) { statutGoodreads = -2; console.log("goodreads erreur", String(e)); return []; }
 }
 
@@ -360,7 +370,7 @@ Deno.serve(async (req) => {
     const arabes = L === "ar" ? aLire.filter((b) => /[\u0600-\u06FF]/.test(b.titre)) : [];
     if (!envie && arabes.length && Math.random() < 0.5) {
       const p = choisir(arabes).pick;
-      return { ...carte(p, "Il attend dans ta liste « à lire » sur Goodreads.", "Dans ta liste à lire", "https://www.goodreads.com/book/show/" + p.id), liens: liensLivre(p.titre, p.auteur || "", "https://www.goodreads.com/book/show/" + p.id).filter((x) => x.t !== "Babelio") };
+      return { ...carte(p, "Il attend dans ta liste « à lire » sur Goodreads.", "Dans ta liste à lire", (p.id ? "https://www.goodreads.com/book/show/" + p.id : undefined)), liens: liensLivre(p.titre, p.auteur || "", (p.id ? "https://www.goodreads.com/book/show/" + p.id : undefined)).filter((x) => x.t !== "Babelio") };
     }
     if (autre) {
       const l = neuf(await googleLivres(await traduire(envie || AUDIO[cleHumeur], L), L));
@@ -375,7 +385,7 @@ Deno.serve(async (req) => {
     const tirage = Math.random();
     if (!envie && aLire.length && tirage < 0.4) {
       const p = choisir(aLire).pick;
-      return carte(p, "Il attend dans ta liste « à lire » sur Goodreads.", "Dans ta liste à lire", "https://www.goodreads.com/book/show/" + p.id);
+      return carte(p, "Il attend dans ta liste « à lire » sur Goodreads.", "Dans ta liste à lire", (p.id ? "https://www.goodreads.com/book/show/" + p.id : undefined));
     }
     if (!envie && aLire.length && tirage < 0.8) {
       const source = hasard(aLire.filter((b) => b.auteur));
