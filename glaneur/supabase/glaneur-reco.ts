@@ -2,6 +2,7 @@
 // Films, séries et docus : moins de 30 ans, disponibles en France sur Netflix, Canal+ ou Disney+
 // Un seul secret à définir dans Supabase > Edge Functions > Secrets :
 //   TMDB_API_KEY  clé v3 ou jeton de lecture TMDB (themoviedb.org, gratuit)
+// Facultatif : YOUTUBE_API_KEY (clé gratuite « YouTube Data API v3 ») pour des vidéos plus fiables
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
@@ -137,6 +138,45 @@ async function livres(term: string) {
   } catch { return []; }
 }
 
+// Vraies vidéos YouTube : API officielle si la clé gratuite YOUTUBE_API_KEY existe, sinon lecture de la page de recherche
+const secondes = (t: string) => t.split(":").reduce((a, n) => a * 60 + Number(n), 0);
+const propre = (t: string) => t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+async function videosYoutube(rech: string, maxMinutes: number) {
+  const key = Deno.env.get("YOUTUBE_API_KEY");
+  try {
+    if (key) {
+      const u = new URL("https://www.googleapis.com/youtube/v3/search");
+      const p: Record<string, string> = { part: "snippet", type: "video", maxResults: "20", q: rech, relevanceLanguage: "fr", regionCode: "FR",
+        videoDuration: maxMinutes <= 30 ? "medium" : "any", key };
+      for (const [k, v] of Object.entries(p)) u.searchParams.set(k, v);
+      const d = await (await fetch(u)).json();
+      return (d.items || []).filter((x: any) => x.id?.videoId).map((x: any) => ({
+        id: x.id.videoId, titre: propre(x.snippet.title), auteur: propre(x.snippet.channelTitle),
+        chaine: "https://www.youtube.com/channel/" + x.snippet.channelId,
+      }));
+    }
+    const r = await fetch("https://www.youtube.com/results?hl=fr&gl=FR&search_query=" + encodeURIComponent(rech), {
+      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+        "Accept-Language": "fr-FR,fr;q=0.9", Cookie: "SOCS=CAI; CONSENT=YES+1" },
+    });
+    const m = (await r.text()).match(/var ytInitialData = (\{.*?\});<\/script>/s);
+    if (!m) return [];
+    const vids: any[] = [];
+    const fouille = (o: any) => {
+      if (!o || typeof o !== "object") return;
+      if (o.videoRenderer?.videoId) vids.push(o.videoRenderer);
+      for (const k in o) fouille(o[k]);
+    };
+    fouille(JSON.parse(m[1]));
+    return vids.map((v) => {
+      const proprio = v.ownerText?.runs?.[0] || v.longBylineText?.runs?.[0];
+      const base = proprio?.navigationEndpoint?.browseEndpoint?.canonicalBaseUrl;
+      return { id: v.videoId, titre: v.title?.runs?.[0]?.text || "", auteur: proprio?.text || "",
+        duree: v.lengthText?.simpleText || "", chaine: base ? "https://www.youtube.com" + base : null };
+    }).filter((v) => v.titre && v.duree && secondes(v.duree) >= 180 && secondes(v.duree) <= Math.max(maxMinutes, 20) * 60);
+  } catch { return []; }
+}
+
 const hasard = <T>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 
 Deno.serve(async (req) => {
@@ -209,17 +249,30 @@ Deno.serve(async (req) => {
   if (audios.length) {
     const { apple, ...p } = choisir(audios).pick;
     out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
-      plateformes: ["Spotify", "YouTube", "Apple Books"], liens: liensEcoute(p.titre, p.auteur || "", "audio", { t: "Apple Books", u: apple }) });
+      plateformes: ["Spotify"], liens: liensEcoute(`${p.titre} ${p.auteur || ""}`.trim(), "", "audio").slice(0, 1) });
   }
   if (books.length) {
     const { pick } = choisir(books);
     out.push({ type: "livre", label: "Livre libre", ...pick, pourquoi: "Un classique libre de droits, à lire gratuitement sur liseuse ou téléphone.", plateformes: ["Projet Gutenberg"] });
   }
   if (cats.includes("youtube")) {
-    const [chaine, rech] = envie ? [envie, envie + " documentaire"] : hasard(mood.yt.filter(([c]) => !deja.has(c)).length ? mood.yt.filter(([c]) => !deja.has(c)) : mood.yt);
-    out.push({ type: "youtube", label: "YouTube", titre: chaine, auteur: envie ? "Recherche sur ton envie" : "Chaîne à explorer",
-      pourquoi: envie ? "Les meilleures vidéos sur ton envie du moment." : mood.phrase,
-      lien: "https://www.youtube.com/results?search_query=" + encodeURIComponent(rech), plateformes: ["YouTube"] });
+    const libres = mood.yt.filter(([c]) => !deja.has(c));
+    const [chaine, rech] = envie ? [envie, envie] : hasard(libres.length ? libres : mood.yt);
+    const recherche = "https://www.youtube.com/results?search_query=" + encodeURIComponent(rech);
+    // Le plus souvent une vidéo précise, parfois une chaîne à explorer
+    const vids = Math.random() < 0.75 ? (await videosYoutube(rech, minutes)).slice(0, 12) : [];
+    if (vids.length) {
+      const v = choisir(vids).pick;
+      const liens = [{ t: "Regarder", u: "https://www.youtube.com/watch?v=" + v.id }];
+      if (v.chaine) liens.push({ t: "La chaîne", u: v.chaine });
+      out.push({ type: "youtube", label: "Vidéo YouTube", titre: v.titre, auteur: [v.auteur, v.duree].filter(Boolean).join(" · "),
+        affiche: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : mood.phrase,
+        liens, plateformes: ["YouTube"] });
+    } else {
+      out.push({ type: "youtube", label: envie ? "YouTube" : "Chaîne YouTube", titre: chaine, auteur: envie ? "Recherche sur ton envie" : "Chaîne à explorer",
+        pourquoi: envie ? "Les meilleures vidéos sur ton envie du moment." : mood.phrase,
+        liens: [{ t: "Voir sur YouTube", u: recherche }], plateformes: ["YouTube"] });
+    }
   }
   if (cats.includes("musique")) {
     const [titre, rech] = hasard(mood.zik);

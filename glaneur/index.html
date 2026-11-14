@@ -177,7 +177,7 @@ textarea{min-height:96px;resize:vertical}
     <div class="reglage"><h2>Ton prénom</h2><p>Pour te dire bonjour.</p><input type="text" id="prenom" placeholder="Ton prénom"></div>
     <div class="reglage"><h2>Tes goûts</h2><p>Ce que tu aimes en général. Ça sert surtout pour les podcasts.</p><textarea id="gouts" placeholder="ex. astronomie, sciences, romans français, polars, jazz, documentaires nature…"></textarea></div>
     <div class="reglage"><h2>Idées déjà proposées</h2><p>Le Glaneur évite de te reproposer ce qu'il t'a montré récemment.</p><button class="btn calme" id="btnOubli">Repartir de zéro</button></div>
-    <p class="petit">Films, séries et docus de moins de 30 ans, sur Netflix, Canal+ ou Disney+. Podcasts et livres audio avec les liens Spotify et YouTube.<br>Données : TMDB (disponibilités via JustWatch), Apple, Projet Gutenberg.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
+    <p class="petit">Films, séries et docus de moins de 30 ans, sur Netflix, Canal+ ou Disney+. Podcasts sur Spotify et YouTube, livres audio sur Spotify, vraies vidéos YouTube.<br>Données : TMDB (disponibilités via JustWatch), Apple, Projet Gutenberg.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
   </section>
 </div>
 
@@ -306,10 +306,29 @@ async function glaner(){
   }
 }
 
-const BARRE=`<div class="barre"><button class="btn calme" onclick="retour()">← Modifier</button><button class="btn" onclick="glaner()">Autres idées</button></div>`;
+const BARRE=`<div class="barre"><button class="btn calme" onclick="retour()">← Modifier</button><button class="btn" onclick="glaner()">↻ Tout changer</button></div>`;
+
+/* change une seule carte */
+async function autre(i,b){
+  const x=window._derniers[i]; if(!x||b.disabled)return;
+  b.disabled=true; b.textContent="Je cherche…";
+  let humeur=etat.humeur;
+  if(humeur==="surprise"){const h=HUMEURS.filter(y=>y.k!=="surprise");humeur=h[Math.floor(Math.random()*h.length)].k}
+  const deja=S.get("deja",[]);
+  try{
+    const r=await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
+      humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, categories:[x.type],
+      envie:$("envie").value.trim(), gouts:S.get("gouts",""), deja:[...deja,...window._derniers.map(y=>y.titre)]})});
+    const d=await r.json();
+    const n=(d.resultats||[]).find(y=>y.type===x.type);
+    if(!n||n.titre===x.titre){toast("Pas d'autre idée pour l'instant");b.disabled=false;b.textContent="↻ Autre proposition";return}
+    deja.push(n.titre); S.set("deja",deja.slice(-80));
+    window._derniers[i]=n; $("c"+i).outerHTML=carteHTML(n,"res",i);
+  }catch(e){toast("Pas de connexion");b.disabled=false;b.textContent="↻ Autre proposition"}
+}
 
 function erreur(msg){
-  $("resultats").innerHTML=`<div class="bandeau" style="margin-top:28px">${msg}</div>${BARRE.replace("Autres idées","Réessayer")}`;
+  $("resultats").innerHTML=`<div class="bandeau" style="margin-top:28px">${msg}</div>${BARRE.replace("↻ Tout changer","Réessayer")}`;
 }
 
 function carteHTML(x,mode,i){
@@ -323,8 +342,8 @@ function carteHTML(x,mode,i){
   const planB=x.planB?`<div class="planb">Sinon : <b>${esc(x.planB.titre)}</b>${x.planB.annee?" ("+esc(x.planB.annee)+")":""}</div>`:"";
   const act = mode==="panier"
     ? `<button class="btn ${x.vu?'calme':'garde'}" onclick="basculerVu(${i})">${x.vu?"Remettre à voir":"✓ C'est vu"}</button><button class="btn calme" onclick="retirer(${i})">Retirer</button>`
-    : `<button class="btn garde" id="g${i}" onclick="garder(window._derniers[${i}],this)">${dansListe(x)?"✓ Dans ma liste":"＋ Ma liste"}</button>`;
-  return `<article class="carte${x.vu?" vu":""}">
+    : `<button class="btn garde" id="g${i}" onclick="garder(window._derniers[${i}],this)">${dansListe(x)?"✓ Dans ma liste":"＋ Ma liste"}</button><button class="btn calme" onclick="autre(${i},this)">↻ Autre proposition</button>`;
+  return `<article class="carte${x.vu?" vu":""}"${mode==="panier"?"":` id="c${i}"`}>
     <div class="affiche${carre}" ${img}>${x.affiche?"":ICONES[x.type]||"✦"}</div>
     <div>
       <span class="etiquette">${esc(x.label||NOMS[x.type]||x.type)}</span>
@@ -347,7 +366,7 @@ function afficher(d,demo){
     ? `<p class="meta-res">${res.length} idée${res.length>1?"s":""} pour toi, avec les liens pour y aller.</p>`
     : `<div class="bandeau">Rien trouvé cette fois. Change d'envie ou ajoute des catégories.</div>`;
   res.forEach((x,i)=>{h+=carteHTML(x,"res",i)});
-  if(res.length>2) h+=BARRE;
+  if(res.length) h+=BARRE;
   $("resultats").innerHTML=h;
 }
 
