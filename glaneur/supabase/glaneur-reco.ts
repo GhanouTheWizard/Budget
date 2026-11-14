@@ -138,6 +138,17 @@ async function livres(term: string) {
   } catch { return []; }
 }
 
+// Livres du commerce (récents ou non), cherchés dans le catalogue français
+async function livresRecents(term: string) {
+  try {
+    const r = await fetch(`https://itunes.apple.com/search?media=ebook&country=FR&lang=fr_fr&limit=25&term=${encodeURIComponent(term)}`);
+    return ((await r.json()).results || []).filter((b: any) => b.trackName && b.artistName).map((b: any) => ({
+      id: b.trackId, titre: b.trackName, auteur: b.artistName, annee: (b.releaseDate || "").slice(0, 4),
+      affiche: (b.artworkUrl100 || "").replace("100x100", "600x600") || null,
+    }));
+  } catch { return []; }
+}
+
 // Vraies vidéos YouTube : API officielle si la clé gratuite YOUTUBE_API_KEY existe, sinon lecture de la page de recherche
 const secondes = (t: string) => t.split(":").reduce((a, n) => a * 60 + Number(n), 0);
 const propre = (t: string) => t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
@@ -204,13 +215,16 @@ Deno.serve(async (req) => {
   const famille = String(body.avec || "").includes("famille");
 
   const theme = envie || (gouts.length ? hasard(gouts) : "");
-  const [films, series, docus, pods, audios, books] = await Promise.all([
+  // Livres : le plus souvent un livre du commerce, de temps en temps un classique gratuit
+  const classique = Math.random() < 0.2;
+  const [films, series, docus, pods, audios, books, nouveaux] = await Promise.all([
     cats.includes("film") ? discover("movie", famille ? "10751|16" : mood.movie, minutes) : [],
     cats.includes("serie") ? discover("tv", famille ? "10751|16" : mood.tv) : [],
     cats.includes("docu") ? discover("movie", "99", minutes) : [],
     cats.includes("podcast") ? podcasts(theme || mood.pod) : [],
     cats.includes("audio") ? livresAudio(theme || AUDIO[body.humeur] || "roman") : [],
-    cats.includes("livre") ? livres(envie.split(" ")[0] || "") : [],
+    cats.includes("livre") && classique ? livres(envie.split(" ")[0] || "") : [],
+    cats.includes("livre") && !classique ? livresRecents(theme || AUDIO[body.humeur] || "roman") : [],
   ]);
 
   // Choix : on écarte le déjà proposé, on garde les mieux notés, puis on tire au sort
@@ -251,9 +265,19 @@ Deno.serve(async (req) => {
     out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
       plateformes: ["Spotify"], liens: liensEcoute(`${p.titre} ${p.auteur || ""}`.trim(), "", "audio").slice(0, 1) });
   }
+  if (nouveaux.length) {
+    const p = choisir(nouveaux).pick;
+    const q = encodeURIComponent(`${p.titre} ${p.auteur}`);
+    out.push({ type: "livre", label: "Livre", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "Une lecture raccord avec ton envie du moment.",
+      plateformes: [], liens: [
+        { t: "Voir sur Goodreads", u: "https://www.goodreads.com/search?q=" + q },
+        { t: "Babelio", u: "https://www.babelio.com/recherche.php?Recherche=" + encodeURIComponent(p.titre) },
+        { t: "En audio sur Spotify", u: `https://open.spotify.com/search/${q}/audiobooks` },
+      ] });
+  }
   if (books.length) {
     const { pick } = choisir(books);
-    out.push({ type: "livre", label: "Livre libre", ...pick, pourquoi: "Un classique libre de droits, à lire gratuitement sur liseuse ou téléphone.", plateformes: ["Projet Gutenberg"] });
+    out.push({ type: "livre", label: "Classique gratuit", ...pick, pourquoi: "Un classique libre de droits, à lire gratuitement sur liseuse ou téléphone.", plateformes: ["Projet Gutenberg"] });
   }
   if (cats.includes("youtube")) {
     const libres = mood.yt.filter(([c]) => !deja.has(c));
