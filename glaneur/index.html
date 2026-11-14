@@ -207,7 +207,9 @@ const FONCTION = "https://jwoqkbrwzborlgphfnqu.supabase.co/functions/v1/glaneur-
 
 const HUMEURS = [
   {k:"rire",i:"😂",t:"Rire"},{k:"cocon",i:"🧸",t:"Douceur"},{k:"evasion",i:"🚀",t:"Évasion"},{k:"emotion",i:"🥹",t:"Émotion"},
-  {k:"curieux",i:"🧠",t:"Apprendre"},{k:"frissons",i:"👻",t:"Frissons"},{k:"adrenaline",i:"⚡",t:"Action"},{k:"surprise",i:"🎲",t:"Surprise"}
+  {k:"curieux",i:"🧠",t:"Apprendre"},{k:"frissons",i:"👻",t:"Frissons"},{k:"adrenaline",i:"⚡",t:"Action"},
+  {k:"amour",i:"💞",t:"Amour"},{k:"enquete",i:"🔍",t:"Enquête"},{k:"nostalgie",i:"📼",t:"Nostalgie"},{k:"inspiration",i:"🌱",t:"Inspiration"},
+  {k:"surprise",i:"🎲",t:"Surprise"}
 ];
 const TEMPS = [{k:30,t:"30 min"},{k:60,t:"1 h"},{k:100,t:"1 h 40"},{k:150,t:"2 h et plus"},{k:400,t:"Tout le week-end"}];
 const ENERGIE = [{k:"cerveau en veille",t:"Fatigué"},{k:"normale",t:"Normale"},{k:"à fond, prêt à réfléchir",t:"En forme"}];
@@ -460,7 +462,7 @@ function apercu(){
 }
 
 /* mise à jour automatique : si une version plus récente est en ligne, on recharge */
-const VERSION="10";
+const VERSION="11";
 async function verifierVersion(){
   try{
     const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"});

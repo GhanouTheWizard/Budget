@@ -14,7 +14,7 @@ const json = (data: unknown, status = 200) =>
 
 const IMG = "https://image.tmdb.org/t/p/w342";
 
-type Mood = { movie: string; tv: string; label: string; phrase: string; yt: [string, string][]; zik: [string, string][]; pod: string };
+type Mood = { movie: string; tv: string; label: string; phrase: string; yt: [string, string][]; zik: [string, string][]; pod: string; kw?: string; avant?: string };
 const MOODS: Record<string, Mood> = {
   rire: { movie: "35", tv: "35", label: "rire", phrase: "De quoi se détendre les zygomatiques.", pod: "humour",
     yt: [["Palmashow", "Palmashow sketch"], ["Golden Moustache", "Golden Moustache court métrage"], ["Studio Bagel", "Studio Bagel sketch"]],
@@ -37,6 +37,18 @@ const MOODS: Record<string, Mood> = {
   adrenaline: { movie: "28|53|80", tv: "10759|80", label: "action", phrase: "Ça ne traîne pas.", pod: "sport aventure",
     yt: [["Riding Zone", "Riding Zone"], ["Red Bull", "Red Bull best of sports extrêmes"], ["Zone Interdite aventure", "expédition extrême documentaire"]],
     zik: [["Rock énergique", "rock énergie playlist"], ["Électro qui réveille", "electro workout playlist"]] },
+  amour: { movie: "10749", tv: "18|35", label: "amour", phrase: "Pour fondre un peu, sans honte.", pod: "histoires d'amour",
+    yt: [["Brut", "Brut histoire d'amour"], ["Konbini", "Konbini love story"], ["ARTE", "ARTE court métrage romance"]],
+    zik: [["Soul romantique", "soul romantic playlist"], ["Chansons d'amour françaises", "chanson d'amour française playlist"]] },
+  enquete: { movie: "9648|80", tv: "9648|80", label: "enquête", phrase: "Ouvre l'œil, chaque détail compte.", pod: "enquêtes",
+    yt: [["Mamytwink", "Mamytwink affaire"], ["Nota Bene", "Nota Bene mystère histoire"], ["Feldup", "Feldup enquête"]],
+    zik: [["Jazz noir", "noir jazz playlist"], ["Synthé rétro", "synthwave noir playlist"]] },
+  nostalgie: { movie: "12|35|10751|14", tv: "35|10751|16", avant: "2008-12-31", label: "nostalgie", phrase: "Retour vers la fin des années 90 et les années 2000.", pod: "souvenirs d'enfance",
+    yt: [["Joueur du Grenier", "Joueur du Grenier"], ["Ina", "Ina archives années 90"], ["Génériques cultes", "génériques dessins animés années 90"]],
+    zik: [["Tubes des années 90", "années 90 hits playlist"], ["Tubes des années 2000", "années 2000 hits playlist"]] },
+  inspiration: { movie: "18", tv: "18", kw: "9672", label: "inspiration", phrase: "Des histoires vraies pour repartir gonflé à bloc.", pod: "parcours inspirants",
+    yt: [["TEDx", "TEDx talk français"], ["Brut", "Brut portrait inspirant"], ["Konbini", "Konbini parcours"]],
+    zik: [["Musique qui motive", "motivation playlist"], ["Bandes originales inspirantes", "inspiring soundtrack playlist"]] },
 };
 
 function tmdbFetch(path: string, params: Record<string, string>) {
@@ -62,7 +74,7 @@ async function idsPlateformes(kind: "movie" | "tv") {
 }
 
 // Titres de moins de 30 ans, inclus dans l'abonnement Netflix, Canal+ ou Disney+ en France
-async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number, motsCles = "", vo = "") {
+async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number, motsCles = "", vo = "", avant = "") {
   const il30 = new Date(); il30.setFullYear(il30.getFullYear() - 30);
   const params: Record<string, string> = {
     language: "fr-FR", watch_region: "FR", with_watch_monetization_types: "flatrate",
@@ -72,6 +84,7 @@ async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: numbe
     page: motsCles ? "1" : String(1 + Math.floor(Math.random() * 3)),
   };
   if (genres) params.with_genres = genres;
+  if (avant) params[kind === "movie" ? "primary_release_date.lte" : "first_air_date.lte"] = avant;
   if (vo) { params.with_original_language = vo; params["vote_count.gte"] = "5"; params.page = "1"; }
   if (motsCles) params.with_keywords = motsCles;
   if (kind === "movie" && maxMinutes && maxMinutes < 300) params["with_runtime.lte"] = String(maxMinutes);
@@ -198,7 +211,8 @@ async function livresAudio(term: string) {
     }));
   } catch { return []; }
 }
-const AUDIO: Record<string, string> = { rire: "humour", frissons: "thriller", evasion: "aventure", emotion: "roman", curieux: "histoire", cocon: "roman feel good", adrenaline: "polar" };
+const AUDIO: Record<string, string> = { rire: "humour", frissons: "thriller", evasion: "aventure", emotion: "roman", curieux: "histoire", cocon: "roman feel good", adrenaline: "polar",
+  amour: "romance", enquete: "roman policier enquête", nostalgie: "souvenirs d'enfance", inspiration: "biographie" };
 
 async function podcasts(term: string, pays = "FR") {
   try {
@@ -360,7 +374,8 @@ Deno.serve(async (req) => {
   const pays = ({ fr: "FR", ar: "EG", en: "US" } as Record<string, string>)[L];
   const nomLangue = ({ fr: "français", ar: "arabe", en: "anglais" } as Record<string, string>)[L];
   const SUJET_YT: Record<string, string> = { rire: "sketch humour", frissons: "histoires mystérieuses", evasion: "documentaire voyage", emotion: "histoire émouvante",
-    curieux: "documentaire science", cocon: "documentaire nature", adrenaline: "sports extrêmes" };
+    curieux: "documentaire science", cocon: "documentaire nature", adrenaline: "sports extrêmes",
+    amour: "histoire d'amour vraie", enquete: "enquête mystère", nostalgie: "nostalgie années 90", inspiration: "parcours inspirant" };
   const cleHumeur = MOODS[body.humeur] ? String(body.humeur) : "cocon";
 
   const theme = envie || (gouts.length && !autre ? hasard(gouts) : "");
@@ -390,7 +405,10 @@ Deno.serve(async (req) => {
       const liste = await discover(kind, docu ? genres : "", max, mc, langue);
       if (liste.length) return { liste, sujet: true };
     }
-    const liste = await discover(kind, genres, max, "", langue);
+    // Certaines envies ciblent une époque (nostalgie) ou des histoires vraies (inspiration)
+    const kw = docu ? "" : mood.kw || "", avant = docu ? "" : mood.avant || "";
+    let liste = await discover(kind, genres, max, kw, langue, avant);
+    if (!liste.length && (kw || avant)) liste = await discover(kind, genres, max, "", langue);
     // Dans une langue précise le choix est plus mince : on élargit à tous les genres plutôt que de ne rien proposer
     return { liste: liste.length || !langue || docu ? liste : await discover(kind, "", max, "", langue), sujet: false };
   };
