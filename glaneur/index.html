@@ -460,7 +460,7 @@ function apercu(){
 }
 
 /* mise à jour automatique : si une version plus récente est en ligne, on recharge */
-const VERSION="9";
+const VERSION="10";
 async function verifierVersion(){
   try{
     const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"});

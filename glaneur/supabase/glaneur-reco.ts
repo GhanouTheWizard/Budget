@@ -96,10 +96,27 @@ async function traduire(texte: string, vers: string) {
 
 // Livres dans une langue donnée : Google Livres (sans clé), puis Open Library si Google ne répond pas
 const NAV = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
+// Valeurs sûres de la littérature arabe, proposées quand aucune source en ligne ne répond
+const INCONTOURNABLES_AR: [string, string][] = [
+  ["موسم الهجرة إلى الشمال", "الطيب صالح"], ["بين القصرين", "نجيب محفوظ"], ["أولاد حارتنا", "نجيب محفوظ"], ["اللص والكلاب", "نجيب محفوظ"],
+  ["ثرثرة فوق النيل", "نجيب محفوظ"], ["الحرافيش", "نجيب محفوظ"], ["زقاق المدق", "نجيب محفوظ"], ["رجال في الشمس", "غسان كنفاني"],
+  ["عائد إلى حيفا", "غسان كنفاني"], ["الخبز الحافي", "محمد شكري"], ["ذاكرة الجسد", "أحلام مستغانمي"], ["فوضى الحواس", "أحلام مستغانمي"],
+  ["الأسود يليق بك", "أحلام مستغانمي"], ["الأيام", "طه حسين"], ["دعاء الكروان", "طه حسين"], ["عزازيل", "يوسف زيدان"],
+  ["ساق البامبو", "سعود السنعوسي"], ["عمارة يعقوبيان", "علاء الأسواني"], ["مدن الملح", "عبد الرحمن منيف"], ["شرق المتوسط", "عبد الرحمن منيف"],
+  ["الزيني بركات", "جمال الغيطاني"], ["يوميات نائب في الأرياف", "توفيق الحكيم"], ["عودة الروح", "توفيق الحكيم"], ["الأجنحة المتكسرة", "جبران خليل جبران"],
+  ["باب الشمس", "إلياس خوري"], ["فرانكشتاين في بغداد", "أحمد سعداوي"], ["واحة الغروب", "بهاء طاهر"], ["ريح الجنوب", "عبد الحميد بن هدوقة"],
+  ["اللاز", "الطاهر وطار"], ["الطنطورية", "رضوى عاشور"], ["ثلاثية غرناطة", "رضوى عاشور"], ["القوقعة", "مصطفى خليفة"],
+  ["يوتوبيا", "أحمد خالد توفيق"], ["تراب الماس", "أحمد مراد"], ["الفيل الأزرق", "أحمد مراد"], ["طوق الياسمين", "واسيني الأعرج"],
+];
+
 async function googleLivres(term: string, langue: string) {
   let liste: any[] = [];
   try {
-    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(term)}&langRestrict=${langue}&printType=books&maxResults=25`);
+    // Avec la clé Google du projet (si l'API Books y est activée), le quota est le tien et non le quota partagé, vite épuisé
+    const cle = Deno.env.get("YOUTUBE_API_KEY");
+    const base = `https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(term)}&langRestrict=${langue}&printType=books&maxResults=25`;
+    let r = await fetch(cle ? `${base}&key=${cle}` : base);
+    if (!r.ok && cle) { console.log("google livres avec clé", r.status); r = await fetch(base); }
     const d = await r.json();
     console.log("google livres", langue, r.status, (d.items || []).length, d.error?.message || "");
     liste = (d.items || []).map((x: any) => x.volumeInfo).filter((v: any) => v?.title && (!v.language || v.language === langue)).map((v: any) => ({
@@ -110,9 +127,9 @@ async function googleLivres(term: string, langue: string) {
   if (liste.length) return liste;
   try {
     const code = ({ ar: "ara", en: "eng", fr: "fre" } as Record<string, string>)[langue] || langue;
-    const champs = "title,author_name,first_publish_year,cover_i";
+    const champs = "title,author_name,first_publish_year,cover_i,editions,editions.title,editions.language";
     const lire = async (q: string) => {
-      const r = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&language=${code}&limit=30&fields=${champs}`, { headers: { "User-Agent": "LeGlaneur/1.0 (appli personnelle)" } });
+      const r = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&language=${code}&lang=${langue}&limit=30&fields=${champs}`, { headers: { "User-Agent": "LeGlaneur/1.0 (appli personnelle)" } });
       const d = await r.json();
       console.log("open library", code, r.status, (d.docs || []).length);
       return d.docs || [];
@@ -121,11 +138,17 @@ async function googleLivres(term: string, langue: string) {
     // Rien sur ce terme : on prend au moins des livres dans cette langue
     if (!docs.length) docs = await lire(`language:${code}`);
     const dansLaLangue = (t: string) => langue !== "ar" || /[\u0600-\u06FF]/.test(t);
-    liste = docs.filter((x: any) => x.title && dansLaLangue(x.title)).map((x: any) => ({
+    // Le titre de l'œuvre est souvent dans une autre langue : on prend celui de l'édition dans la langue demandée
+    const titreDe = (x: any) => (x.editions?.docs || []).map((e: any) => e.title).find((t: string) => t && dansLaLangue(t)) || x.title;
+    liste = docs.map((x: any) => ({ ...x, title: titreDe(x) })).filter((x: any) => x.title && dansLaLangue(x.title)).map((x: any) => ({
       id: x.title, titre: x.title, auteur: (x.author_name || []).slice(0, 2).join(", "), annee: String(x.first_publish_year || ""),
       affiche: x.cover_i ? `https://covers.openlibrary.org/b/id/${x.cover_i}-L.jpg` : null,
     }));
   } catch (e) { console.log("open library erreur", String(e)); }
+  if (!liste.length && langue === "ar") {
+    console.log("livres arabes : liste de secours");
+    liste = INCONTOURNABLES_AR.map(([titre, auteur]) => ({ id: titre, titre, auteur, annee: "", affiche: null, secours: true }));
+  }
   return liste;
 }
 
@@ -185,6 +208,29 @@ async function podcasts(term: string, pays = "FR") {
       affiche: p.artworkUrl600 || p.artworkUrl100, apple: p.collectionViewUrl,
     }));
   } catch { return []; }
+}
+
+// Épisodes de podcast (et non l'émission entière), avec leur durée et le lien d'écoute directe
+async function episodes(term: string, pays = "FR", maxMinutes = 0) {
+  try {
+    const r = await fetch(`https://itunes.apple.com/search?media=podcast&entity=podcastEpisode&country=${pays}&limit=40&term=${encodeURIComponent(term)}`);
+    const d = await r.json();
+    console.log("episodes", pays, r.status, (d.results || []).length);
+    const liste = (d.results || []).filter((e: any) => e.trackName && e.collectionName).map((e: any) => {
+      const min = e.trackTimeMillis ? Math.round(e.trackTimeMillis / 60000) : 0;
+      const texte = String(e.shortDescription || e.description || "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+      return {
+        id: e.trackId, titre: e.trackName, emission: e.collectionName, min,
+        auteur: [e.collectionName, min ? (min >= 60 ? `${Math.floor(min / 60)} h ${String(min % 60).padStart(2, "0")}` : `${min} min`) : ""].filter(Boolean).join(" · "),
+        annee: String(e.releaseDate || "").slice(0, 4), affiche: e.artworkUrl600 || e.artworkUrl160 || null,
+        resume: texte.length > 150 ? texte.slice(0, 147).replace(/\s+\S*$/, "") + "…" : texte,
+        audio: e.episodeUrl || null, apple: e.trackViewUrl || null,
+      };
+    });
+    // On garde ceux qui tiennent dans le temps disponible, s'il en reste
+    const courts = maxMinutes && maxMinutes < 300 ? liste.filter((e: any) => !e.min || e.min <= maxMinutes) : liste;
+    return courts.length ? courts : liste;
+  } catch (e) { console.log("episodes erreur", String(e)); return []; }
 }
 
 async function livres(term: string, langue = "fr") {
@@ -375,8 +421,8 @@ Deno.serve(async (req) => {
     if (autre) {
       const l = neuf(await googleLivres(await traduire(envie || AUDIO[cleHumeur], L), L));
       if (!l.length) return null;
-      const p = choisir(l).pick;
-      return { ...carte(p, envie ? `En ${nomLangue}, en lien avec ton sujet : ${envie}.` : `Une lecture en ${nomLangue}.`), liens: liensLivre(p.titre, p.auteur || "").filter((x) => x.t !== "Babelio") };
+      const { secours, ...p } = choisir(l).pick;
+      return { ...carte(p, secours ? "Un incontournable de la littérature arabe." : envie ? `En ${nomLangue}, en lien avec ton sujet : ${envie}.` : `Une lecture en ${nomLangue}.`), liens: liensLivre(p.titre, p.auteur || "").filter((x) => x.t !== "Babelio") };
     }
     if (envie) {
       const l = neuf(await livresRecents(envie));
@@ -405,7 +451,11 @@ Deno.serve(async (req) => {
     cats.includes("film") ? trouver("movie", famille ? "10751|16" : mood.movie, minutes) : rien,
     cats.includes("serie") ? trouver("tv", famille ? "10751|16" : mood.tv) : rien,
     cats.includes("docu") ? trouver("movie", "99", minutes, true) : rien,
-    cats.includes("podcast") ? (async () => podcasts(await traduire(theme || mood.pod, L), pays))() : [],
+    cats.includes("podcast") ? (async () => {
+      const terme = await traduire(theme || mood.pod, L);
+      const eps = await episodes(terme, pays, minutes);
+      return eps.length ? eps : podcasts(terme, pays);
+    })() : [],
     cats.includes("audio") ? (async () => autre ? googleLivres(await traduire(envie || AUDIO[cleHumeur], L), L) : livresAudio(theme || AUDIO[cleHumeur]))() : [],
     cats.includes("livre") ? proposerLivre() : null,
   ]);
@@ -431,14 +481,27 @@ Deno.serve(async (req) => {
   ]);
 
   if (pods.length) {
-    const { pick } = choisir(pods);
-    const { apple, ...p } = pick;
-    out.push({ type: "podcast", label: "Podcast", ...p, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : "À écouter en voiture ou en cuisinant.",
-      plateformes: ["Spotify", "YouTube", "Apple Podcasts"], liens: liensEcoute(p.titre, p.auteur || "", "podcast", { t: "Apple Podcasts", u: apple }) });
+    const pick = choisir(pods).pick as any;
+    if (pick.emission) {
+      // Un épisode précis : écoute directe, puis Spotify et Apple Podcasts
+      const q = encodeURIComponent(`${pick.titre} ${pick.emission}`);
+      const liens = [
+        pick.audio && { t: "Écouter", u: pick.audio },
+        { t: "Spotify", u: `https://open.spotify.com/search/${q}/episodes` },
+        pick.apple && { t: "Apple Podcasts", u: pick.apple },
+      ].filter(Boolean);
+      out.push({ type: "podcast", label: "Épisode de podcast", id: pick.id, titre: pick.titre, auteur: pick.auteur, annee: pick.annee, affiche: pick.affiche,
+        pourquoi: pick.resume || (envie ? `En lien avec ton sujet : ${envie}.` : "À écouter en voiture ou en cuisinant."),
+        plateformes: ["Spotify", "Apple Podcasts"], liens });
+    } else {
+      const { apple, ...p } = pick;
+      out.push({ type: "podcast", label: "Podcast", ...p, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : "À écouter en voiture ou en cuisinant.",
+        plateformes: ["Spotify", "YouTube", "Apple Podcasts"], liens: liensEcoute(p.titre, p.auteur || "", "podcast", { t: "Apple Podcasts", u: apple }) });
+    }
   }
   if (audios.length) {
-    const { apple, ...p } = choisir(audios).pick as any;
-    out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
+    const { apple, secours, ...p } = choisir(audios).pick as any;
+    out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: secours ? "Un incontournable de la littérature arabe, à chercher en version audio." : envie ? `En lien avec ton sujet : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
       plateformes: autre ? ["Spotify", "YouTube"] : ["Spotify"], liens: liensEcoute(`${p.titre} ${p.auteur || ""}`.trim(), "", "audio").slice(0, autre ? 2 : 1) });
   }
   if (livre) out.push(livre);
