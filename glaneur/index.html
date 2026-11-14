@@ -125,6 +125,9 @@ textarea{min-height:96px;resize:vertical}
 .reglage h2{font-size:16px;font-weight:700}
 .reglage p{color:var(--doux);font-size:14px;margin:2px 0 12px}
 .reglage input,.reglage textarea{background:var(--creux)}
+.etat{font-size:13.5px;margin:10px 0 0!important;color:var(--doux)}
+.etat.ok{color:var(--or-texte);font-weight:600}
+.etat.non{color:var(--alerte);font-weight:600}
 .petit{font-size:12.5px;color:var(--doux);text-align:center;margin-top:20px}
 
 /* navigation */
@@ -186,7 +189,7 @@ textarea{min-height:96px;resize:vertical}
     <h1 class="titre-ecran">Réglages</h1>
     <div class="reglage"><h2>Ton prénom</h2><p>Pour te dire bonjour.</p><input type="text" id="prenom" placeholder="Ton prénom"></div>
     <div class="reglage"><h2>Tes goûts</h2><p>Ce que tu aimes en général. Ça sert surtout pour les podcasts.</p><textarea id="gouts" placeholder="ex. astronomie, sciences, romans français, polars, jazz, documentaires nature…"></textarea></div>
-    <div class="reglage"><h2>Ton Goodreads</h2><p>Colle le lien de ton profil. Je verrai ta liste « à lire » pour te proposer ces livres et d'autres dans le même esprit, sans ceux que tu as déjà lus.</p><input type="text" id="goodreads" placeholder="https://www.goodreads.com/user/show/…" inputmode="url" autocapitalize="off" autocorrect="off"></div>
+    <div class="reglage"><h2>Ton Goodreads</h2><p>Colle le lien de ton profil. Je verrai ta liste « à lire » pour te proposer ces livres et d'autres dans le même esprit, sans ceux que tu as déjà lus.</p><input type="text" id="goodreads" placeholder="https://www.goodreads.com/user/show/…" inputmode="url" autocapitalize="off" autocorrect="off"><p class="etat" id="etatGoodreads"></p></div>
     <div class="reglage"><h2>Idées déjà proposées</h2><p>Le Glaneur évite de te reproposer ce qu'il t'a montré récemment.</p><button class="btn calme" id="btnOubli">Repartir de zéro</button></div>
     <p class="petit">Films, séries et docus de moins de 30 ans, sur Netflix, Canal+ ou Disney+. Podcasts sur Spotify et YouTube, livres audio sur Spotify, vraies vidéos YouTube.<br>Livres : ton sujet, ta liste « à lire » Goodreads, des livres du commerce et quelques classiques gratuits.<br>Données : TMDB (disponibilités via JustWatch), Apple, Projet Gutenberg.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
   </section>
@@ -409,6 +412,7 @@ function aller(e){
   document.querySelectorAll(".nav button").forEach(x=>x.classList.toggle("on",x.dataset.e===e));
   document.querySelectorAll(".ecran").forEach(x=>x.classList.toggle("on",x.id==="e-"+e));
   if(e==="panier")panier();
+  if(e==="reglages")testerGoodreads();
   window.scrollTo({top:0});
 }
 document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>aller(b.dataset.e));
@@ -418,6 +422,21 @@ document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>aller(b.datase
   $(id).value=S.get(k,"");
   $(id).addEventListener("input",()=>{S.set(k,$(id).value.trim());if(k==="prenom")salut();astuce()});
 });
+/* Goodreads : on vérifie tout de suite que la liste est lisible */
+let _tg;
+async function testerGoodreads(){
+  const e=$("etatGoodreads"), lien=S.get("goodreads","");
+  if(!lien){e.className="etat";e.textContent="";return}
+  e.className="etat";e.textContent="Je vérifie…";
+  try{
+    const d=await (await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({test:"goodreads",goodreads:lien})})).json();
+    if(d.ok){e.className="etat ok";e.textContent=`✓ Connecté : ${d.aLire} livre${d.aLire>1?"s":""} à lire, ${d.lus} lu${d.lus>1?"s":""}.`+(d.aLire?"":" Ta liste « à lire » est vide.")}
+    else if(d.raison==="lien"){e.className="etat non";e.textContent="Je ne reconnais pas ce lien. Il doit contenir le numéro de ton profil."}
+    else{e.className="etat non";e.textContent=d.statut===200?"Goodreads répond, mais je ne vois aucun livre. Vérifie que ton profil est public.":`Goodreads ne me laisse pas lire ta liste (réponse ${d.statut}).`}
+  }catch(x){e.className="etat non";e.textContent="Vérification impossible, pas de connexion."}
+}
+$("goodreads").addEventListener("input",()=>{clearTimeout(_tg);_tg=setTimeout(testerGoodreads,900)});
+
 $("btnOubli").onclick=()=>{S.set("deja",[]);toast("C'est reparti de zéro")};
 $("envie").value=S.get("envie","");
 const sujet=()=>{const v=$("envie").value.trim();S.set("envie",v);$("envie").parentNode.classList.toggle("plein",!!v)};
@@ -441,7 +460,7 @@ function apercu(){
 }
 
 /* mise à jour automatique : si une version plus récente est en ligne, on recharge */
-const VERSION="7";
+const VERSION="8";
 async function verifierVersion(){
   try{
     const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"});

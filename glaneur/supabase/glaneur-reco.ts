@@ -94,15 +94,39 @@ async function traduire(texte: string, vers: string) {
   } catch { return texte; }
 }
 
-// Livres dans une langue donnée (Google Livres, sans clé)
+// Livres dans une langue donnée : Google Livres (sans clé), puis Open Library si Google ne répond pas
+const NAV = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36";
 async function googleLivres(term: string, langue: string) {
+  let liste: any[] = [];
   try {
-    const d = await (await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(term)}&langRestrict=${langue}&printType=books&maxResults=25`)).json();
-    return (d.items || []).map((x: any) => x.volumeInfo).filter((v: any) => v?.title && (!v.language || v.language === langue)).map((v: any) => ({
+    const r = await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(term)}&langRestrict=${langue}&printType=books&maxResults=25`);
+    const d = await r.json();
+    console.log("google livres", langue, r.status, (d.items || []).length, d.error?.message || "");
+    liste = (d.items || []).map((x: any) => x.volumeInfo).filter((v: any) => v?.title && (!v.language || v.language === langue)).map((v: any) => ({
       id: v.title, titre: v.title, auteur: (v.authors || []).join(", "), annee: String(v.publishedDate || "").slice(0, 4),
       affiche: String(v.imageLinks?.thumbnail || "").replace("http://", "https://") || null,
     }));
-  } catch { return []; }
+  } catch (e) { console.log("google livres erreur", String(e)); }
+  if (liste.length) return liste;
+  try {
+    const code = ({ ar: "ara", en: "eng", fr: "fre" } as Record<string, string>)[langue] || langue;
+    const champs = "title,author_name,first_publish_year,cover_i";
+    const lire = async (q: string) => {
+      const r = await fetch(`https://openlibrary.org/search.json?q=${encodeURIComponent(q)}&language=${code}&limit=30&fields=${champs}`, { headers: { "User-Agent": "LeGlaneur/1.0 (appli personnelle)" } });
+      const d = await r.json();
+      console.log("open library", code, r.status, (d.docs || []).length);
+      return d.docs || [];
+    };
+    let docs = await lire(term);
+    // Rien sur ce terme : on prend au moins des livres dans cette langue
+    if (!docs.length) docs = await lire(`language:${code}`);
+    const dansLaLangue = (t: string) => langue !== "ar" || /[\u0600-\u06FF]/.test(t);
+    liste = docs.filter((x: any) => x.title && dansLaLangue(x.title)).map((x: any) => ({
+      id: x.title, titre: x.title, auteur: (x.author_name || []).slice(0, 2).join(", "), annee: String(x.first_publish_year || ""),
+      affiche: x.cover_i ? `https://covers.openlibrary.org/b/id/${x.cover_i}-L.jpg` : null,
+    }));
+  } catch (e) { console.log("open library erreur", String(e)); }
+  return liste;
 }
 
 // Sujet libre -> mots-clés TMDB. Ils sont en anglais, donc on traduit d'abord le sujet.
@@ -186,20 +210,26 @@ async function livresRecents(term: string) {
 
 // Goodreads : une étagère publique, lue par son flux RSS
 const simple = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+let statutGoodreads = 0;
 async function etagere(id: string, nom: string) {
   try {
-    const r = await fetch(`https://www.goodreads.com/review/list_rss/${id}?shelf=${nom}&per_page=200`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LeGlaneur/1.0)" } });
-    if (!r.ok) return [];
+    const r = await fetch(`https://www.goodreads.com/review/list_rss/${id}?shelf=${nom}&per_page=200`, {
+      headers: { "User-Agent": NAV, Accept: "application/rss+xml, application/xml, text/xml, */*", "Accept-Language": "fr-FR,fr;q=0.9,en;q=0.8" },
+    });
+    statutGoodreads = r.status;
     const xml = await r.text();
+    console.log("goodreads", nom, r.status, xml.length, (xml.match(/<item>/g) || []).length);
+    if (!r.ok) return [];
     const champ = (bloc: string, balise: string) => {
       const m = bloc.match(new RegExp(`<${balise}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${balise}>`));
       return m ? propre(m[1].trim()) : "";
     };
+    if (!/<rss|<channel/.test(xml)) statutGoodreads = -1; // réponse reçue, mais ce n'est pas un flux (page de connexion ou de blocage)
     return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => ({
       id: champ(m[1], "book_id"), titre: champ(m[1], "title"), auteur: champ(m[1], "author_name"),
       affiche: champ(m[1], "book_large_image_url") || champ(m[1], "book_image_url") || null, annee: champ(m[1], "book_published"),
     })).filter((b) => b.titre);
-  } catch { return []; }
+  } catch (e) { statutGoodreads = -2; console.log("goodreads erreur", String(e)); return []; }
 }
 
 // Vraies vidéos YouTube : API officielle si la clé gratuite YOUTUBE_API_KEY existe, sinon lecture de la page de recherche
@@ -220,7 +250,7 @@ async function videosYoutube(rech: string, maxMinutes: number, langue = "fr", pa
       }));
     }
     const r = await fetch(`https://www.youtube.com/results?hl=${langue}&gl=${pays}&search_query=` + encodeURIComponent(rech), {
-      headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
+      headers: { "User-Agent": NAV,
         "Accept-Language": langue === "fr" ? "fr-FR,fr;q=0.9" : `${langue},fr;q=0.5`, Cookie: "SOCS=CAI; CONSENT=YES+1" },
     });
     const m = (await r.text()).match(/var ytInitialData = (\{.*?\});<\/script>/s);
@@ -280,6 +310,13 @@ Deno.serve(async (req) => {
   const theme = envie || (gouts.length && !autre ? hasard(gouts) : "");
   const goodreads = (String(body.goodreads || "").match(/\d{3,}/) || [""])[0];
 
+  // Vérification demandée depuis les réglages : est-ce que Goodreads répond, et avec combien de livres ?
+  if (body.test === "goodreads") {
+    if (!goodreads) return json({ ok: false, raison: "lien" });
+    const [aLire, lus] = await Promise.all([etagere(goodreads, "to-read"), etagere(goodreads, "read")]);
+    return json({ ok: aLire.length + lus.length > 0, aLire: aLire.length, lus: lus.length, statut: statutGoodreads, exemples: aLire.slice(0, 3).map((b) => b.titre) });
+  }
+
   // Choix : on écarte le déjà proposé, on garde les mieux notés, puis on tire au sort
   const choisir = (arr: any[]) => {
     let pool = arr.filter((x) => !deja.has(x.titre));
@@ -319,6 +356,12 @@ Deno.serve(async (req) => {
     const carte = (p: any, pourquoi: string, label = "Livre", fiche?: string) =>
       ({ type: "livre", label, ...p, pourquoi, plateformes: [], liens: liensLivre(p.titre, p.auteur || "", fiche) });
 
+    // En arabe : une fois sur deux, un livre arabe de ta liste « à lire » s'il y en a
+    const arabes = L === "ar" ? aLire.filter((b) => /[\u0600-\u06FF]/.test(b.titre)) : [];
+    if (!envie && arabes.length && Math.random() < 0.5) {
+      const p = choisir(arabes).pick;
+      return { ...carte(p, "Il attend dans ta liste « à lire » sur Goodreads.", "Dans ta liste à lire", "https://www.goodreads.com/book/show/" + p.id), liens: liensLivre(p.titre, p.auteur || "", "https://www.goodreads.com/book/show/" + p.id).filter((x) => x.t !== "Babelio") };
+    }
     if (autre) {
       const l = neuf(await googleLivres(await traduire(envie || AUDIO[cleHumeur], L), L));
       if (!l.length) return null;
@@ -422,5 +465,6 @@ Deno.serve(async (req) => {
   const order = ["film", "serie", "docu", "youtube", "podcast", "audio", "musique", "livre"];
   out.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
   const accroches = [`Voilà pour toi, spécial ${mood.label}.`, `Mes idées pour une envie de ${mood.label}.`];
+  console.log("glaneur", JSON.stringify({ langue: L, sujet: !!envie, cats, goodreads: goodreads ? statutGoodreads : "non renseigné", cartes: out.map((x) => x.type + ":" + x.label) }));
   return json({ accroche: hasard(accroches), resultats: out });
 });
