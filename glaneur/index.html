@@ -50,6 +50,11 @@ h1,h2,h3,p{margin:0}
 .q{margin-top:26px}
 .q h2{font-size:13px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--doux);margin-bottom:10px}
 .q h2 small{font-size:12px;font-weight:500;letter-spacing:0;text-transform:none}
+.champ{position:relative}
+.champ input{padding-right:46px}
+.champ button{position:absolute;right:4px;top:50%;transform:translateY(-50%);width:40px;height:40px;border-radius:50%;color:var(--doux);font-size:15px;display:none}
+.champ.plein button{display:block}
+.aide{color:var(--doux);font-size:13.5px;margin-top:8px}
 .puces{display:flex;flex-wrap:wrap;gap:8px}
 .puce{min-height:44px;padding:0 15px;border-radius:999px;background:var(--carte);border:1.5px solid var(--ligne);font-size:15px;font-weight:600;display:inline-flex;align-items:center;gap:7px;transition:background .15s,border-color .15s}
 .puce.on{background:var(--or);border-color:var(--or);color:var(--sur-or)}
@@ -142,7 +147,11 @@ textarea{min-height:96px;resize:vertical}
   <section class="ecran on" id="e-glaner">
     <div id="accueil">
       <h1 class="salut" id="salutTitre">Bonsoir.</h1>
-      <p class="sous-titre">Trois choix, et je te trouve quoi regarder, écouter ou lire.</p>
+      <p class="sous-titre">Dis-moi ton sujet ou ton envie, je te trouve quoi regarder, écouter ou lire.</p>
+
+      <div class="q sujet"><h2>Mon sujet du moment <small>(facultatif)</small></h2>
+        <div class="champ"><input type="text" id="envie" placeholder="ex. les trous noirs, le jazz…" enterkeyhint="search"><button type="button" id="effacer" aria-label="Effacer le sujet">✕</button></div>
+        <p class="aide">Décris ce qui t'intéresse : tout ce que je propose ira dans ce sens.</p></div>
 
       <div class="q"><h2>1. Je cherche <small>(plusieurs choix possibles)</small></h2><div class="puces" id="cats"></div></div>
       <div class="q"><h2>2. J'ai envie de</h2><div class="humeurs" id="humeurs"></div></div>
@@ -153,7 +162,6 @@ textarea{min-height:96px;resize:vertical}
         <div class="dedans">
           <div class="q"><h2>Mon énergie</h2><div class="puces" id="energie"></div></div>
           <div class="q"><h2>Avec qui</h2><div class="puces" id="avec"></div></div>
-          <div class="q"><h2>Une envie précise</h2><input type="text" id="envie" placeholder="ex. l'espace, un vieux polar, du jazz…"></div>
         </div>
       </details>
 
@@ -176,8 +184,9 @@ textarea{min-height:96px;resize:vertical}
     <h1 class="titre-ecran">Réglages</h1>
     <div class="reglage"><h2>Ton prénom</h2><p>Pour te dire bonjour.</p><input type="text" id="prenom" placeholder="Ton prénom"></div>
     <div class="reglage"><h2>Tes goûts</h2><p>Ce que tu aimes en général. Ça sert surtout pour les podcasts.</p><textarea id="gouts" placeholder="ex. astronomie, sciences, romans français, polars, jazz, documentaires nature…"></textarea></div>
+    <div class="reglage"><h2>Ton Goodreads</h2><p>Colle le lien de ton profil. Je verrai ta liste « à lire » pour te proposer ces livres et d'autres dans le même esprit, sans ceux que tu as déjà lus.</p><input type="text" id="goodreads" placeholder="https://www.goodreads.com/user/show/…" inputmode="url" autocapitalize="off" autocorrect="off"></div>
     <div class="reglage"><h2>Idées déjà proposées</h2><p>Le Glaneur évite de te reproposer ce qu'il t'a montré récemment.</p><button class="btn calme" id="btnOubli">Repartir de zéro</button></div>
-    <p class="petit">Films, séries et docus de moins de 30 ans, sur Netflix, Canal+ ou Disney+. Podcasts sur Spotify et YouTube, livres audio sur Spotify, vraies vidéos YouTube.<br>Livres du commerce et quelques classiques gratuits.<br>Données : TMDB (disponibilités via JustWatch), Apple, Projet Gutenberg.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
+    <p class="petit">Films, séries et docus de moins de 30 ans, sur Netflix, Canal+ ou Disney+. Podcasts sur Spotify et YouTube, livres audio sur Spotify, vraies vidéos YouTube.<br>Livres : ton sujet, ta liste « à lire » Goodreads, des livres du commerce et quelques classiques gratuits.<br>Données : TMDB (disponibilités via JustWatch), Apple, Projet Gutenberg.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
   </section>
 </div>
 
@@ -258,8 +267,7 @@ function humeurs(){
   });
 }
 function resumePlus(){
-  const e=$("envie").value.trim();
-  $("resumePlus").textContent=[lib(ENERGIE,etat.energie),lib(AVEC,etat.avec)].join(" · ")+(e?" · "+e:"");
+  $("resumePlus").textContent=[lib(ENERGIE,etat.energie),lib(AVEC,etat.avec)].join(" · ");
 }
 
 /* compteurs */
@@ -289,7 +297,7 @@ async function glaner(){
   if(humeur==="surprise"){const h=HUMEURS.filter(x=>x.k!=="surprise");humeur=h[Math.floor(Math.random()*h.length)].k}
   const corps={
     humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, categories:etat.cats,
-    envie:$("envie").value.trim(), gouts:S.get("gouts",""), deja:S.get("deja",[])
+    envie:$("envie").value.trim(), gouts:S.get("gouts",""), goodreads:S.get("goodreads",""), deja:S.get("deja",[])
   };
   try{
     const r=await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(corps)});
@@ -318,7 +326,7 @@ async function autre(i,b){
   try{
     const r=await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
       humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, categories:[x.type],
-      envie:$("envie").value.trim(), gouts:S.get("gouts",""), deja:[...deja,...window._derniers.map(y=>y.titre)]})});
+      envie:$("envie").value.trim(), gouts:S.get("gouts",""), goodreads:S.get("goodreads",""), deja:[...deja,...window._derniers.map(y=>y.titre)]})});
     const d=await r.json();
     const n=(d.resultats||[]).find(y=>y.type===x.type);
     if(!n||n.titre===x.titre){toast("Pas d'autre idée pour l'instant");b.disabled=false;b.textContent="↻ Autre proposition";return}
@@ -403,12 +411,17 @@ function aller(e){
 document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>aller(b.dataset.e));
 
 /* réglages */
-[["prenom","prenom"],["gouts","gouts"]].forEach(([id,k])=>{
+[["prenom","prenom"],["gouts","gouts"],["goodreads","goodreads"]].forEach(([id,k])=>{
   $(id).value=S.get(k,"");
   $(id).addEventListener("input",()=>{S.set(k,$(id).value.trim());if(k==="prenom")salut();astuce()});
 });
 $("btnOubli").onclick=()=>{S.set("deja",[]);toast("C'est reparti de zéro")};
-$("envie").addEventListener("input",resumePlus);
+$("envie").value=S.get("envie","");
+const sujet=()=>{const v=$("envie").value.trim();S.set("envie",v);$("envie").parentNode.classList.toggle("plein",!!v)};
+$("envie").addEventListener("input",sujet);
+$("envie").addEventListener("keydown",e=>{if(e.key==="Enter"){e.target.blur();glaner()}});
+$("effacer").onclick=()=>{$("envie").value="";sujet();$("envie").focus()};
+sujet();
 
 function astuce(){
   $("astuce").innerHTML=S.get("gouts","")?"":`Pour des idées plus justes, <button type="button" onclick="aller('reglages')">indique tes goûts</button>.`;

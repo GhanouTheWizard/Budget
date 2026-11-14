@@ -62,15 +62,17 @@ async function idsPlateformes(kind: "movie" | "tv") {
 }
 
 // Titres de moins de 30 ans, inclus dans l'abonnement Netflix, Canal+ ou Disney+ en France
-async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number) {
+async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number, motsCles = "") {
   const il30 = new Date(); il30.setFullYear(il30.getFullYear() - 30);
   const params: Record<string, string> = {
     language: "fr-FR", watch_region: "FR", with_watch_monetization_types: "flatrate",
     with_watch_providers: await idsPlateformes(kind),
     [kind === "movie" ? "primary_release_date.gte" : "first_air_date.gte"]: il30.toISOString().slice(0, 10),
-    with_genres: genres, sort_by: "popularity.desc", "vote_count.gte": "40",
-    page: String(1 + Math.floor(Math.random() * 3)),
+    sort_by: "popularity.desc", "vote_count.gte": motsCles ? "10" : "40",
+    page: motsCles ? "1" : String(1 + Math.floor(Math.random() * 3)),
   };
+  if (genres) params.with_genres = genres;
+  if (motsCles) params.with_keywords = motsCles;
   if (kind === "movie" && maxMinutes && maxMinutes < 300) params["with_runtime.lte"] = String(maxMinutes);
   let data = await tmdbFetch(`/discover/${kind}`, params);
   if (!data.results?.length) { params.page = "1"; data = await tmdbFetch(`/discover/${kind}`, params); }
@@ -79,6 +81,18 @@ async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: numbe
     annee: (x.release_date || x.first_air_date || "").slice(0, 4),
     note: x.vote_average, affiche: x.poster_path ? IMG + x.poster_path : null,
   }));
+}
+
+// Sujet libre -> mots-clés TMDB. Ils sont en anglais, donc on traduit d'abord le sujet.
+async function motsClesTmdb(sujet: string) {
+  let en = "";
+  try {
+    const d = await (await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sujet)}&langpair=fr|en`)).json();
+    en = String(d?.responseData?.translatedText || "");
+  } catch { /* on fera sans traduction */ }
+  const termes = [...new Set([en, sujet, ...en.split(/\s+/).filter((w) => w.length > 3)].map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 5);
+  const res = await Promise.all(termes.map((t) => tmdbFetch("/search/keyword", { query: t })));
+  return [...new Set(res.flatMap((d: any) => (d.results || []).slice(0, 4).map((k: any) => k.id)))].slice(0, 12).join("|");
 }
 
 async function providers(kind: "movie" | "tv", id: number) {
@@ -149,6 +163,24 @@ async function livresRecents(term: string) {
   } catch { return []; }
 }
 
+// Goodreads : une étagère publique, lue par son flux RSS
+const simple = (t: string) => t.toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/\(.*?\)/g, "").replace(/[^a-z0-9]+/g, " ").trim();
+async function etagere(id: string, nom: string) {
+  try {
+    const r = await fetch(`https://www.goodreads.com/review/list_rss/${id}?shelf=${nom}&per_page=200`, { headers: { "User-Agent": "Mozilla/5.0 (compatible; LeGlaneur/1.0)" } });
+    if (!r.ok) return [];
+    const xml = await r.text();
+    const champ = (bloc: string, balise: string) => {
+      const m = bloc.match(new RegExp(`<${balise}>(?:<!\\[CDATA\\[)?([\\s\\S]*?)(?:\\]\\]>)?</${balise}>`));
+      return m ? propre(m[1].trim()) : "";
+    };
+    return [...xml.matchAll(/<item>([\s\S]*?)<\/item>/g)].map((m) => ({
+      id: champ(m[1], "book_id"), titre: champ(m[1], "title"), auteur: champ(m[1], "author_name"),
+      affiche: champ(m[1], "book_large_image_url") || champ(m[1], "book_image_url") || null, annee: champ(m[1], "book_published"),
+    })).filter((b) => b.titre);
+  } catch { return []; }
+}
+
 // Vraies vidéos YouTube : API officielle si la clé gratuite YOUTUBE_API_KEY existe, sinon lecture de la page de recherche
 const secondes = (t: string) => t.split(":").reduce((a, n) => a * 60 + Number(n), 0);
 const propre = (t: string) => t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
@@ -215,17 +247,7 @@ Deno.serve(async (req) => {
   const famille = String(body.avec || "").includes("famille");
 
   const theme = envie || (gouts.length ? hasard(gouts) : "");
-  // Livres : le plus souvent un livre du commerce, de temps en temps un classique gratuit
-  const classique = Math.random() < 0.2;
-  const [films, series, docus, pods, audios, books, nouveaux] = await Promise.all([
-    cats.includes("film") ? discover("movie", famille ? "10751|16" : mood.movie, minutes) : [],
-    cats.includes("serie") ? discover("tv", famille ? "10751|16" : mood.tv) : [],
-    cats.includes("docu") ? discover("movie", "99", minutes) : [],
-    cats.includes("podcast") ? podcasts(theme || mood.pod) : [],
-    cats.includes("audio") ? livresAudio(theme || AUDIO[body.humeur] || "roman") : [],
-    cats.includes("livre") && classique ? livres(envie.split(" ")[0] || "") : [],
-    cats.includes("livre") && !classique ? livresRecents(theme || AUDIO[body.humeur] || "roman") : [],
-  ]);
+  const goodreads = (String(body.goodreads || "").match(/\d{3,}/) || [""])[0];
 
   // Choix : on écarte le déjà proposé, on garde les mieux notés, puis on tire au sort
   const choisir = (arr: any[]) => {
@@ -236,11 +258,73 @@ Deno.serve(async (req) => {
     const reste = pool.filter((x) => x !== pick);
     return { pick, planB: reste.length ? hasard(reste) : null };
   };
+
+  // Films, séries, docus : si un sujet est décrit, on cherche d'abord dessus, sinon selon l'envie
+  const mc = envie && cats.some((c) => ["film", "serie", "docu"].includes(c)) ? await motsClesTmdb(envie) : "";
+  const trouver = async (kind: "movie" | "tv", genres: string, max?: number, docu = false) => {
+    if (mc) {
+      const liste = await discover(kind, docu ? genres : "", max, mc);
+      if (liste.length) return { liste, sujet: true };
+    }
+    return { liste: await discover(kind, genres, max), sujet: false };
+  };
+  const rien = { liste: [] as any[], sujet: false };
+
+  // Livres : sujet décrit > liste « à lire » Goodreads (le livre lui-même, ou du même auteur) > livre du commerce > classique gratuit
+  const proposerLivre = async () => {
+    const liensLivre = (titre: string, auteur: string, fiche?: string) => {
+      const q = encodeURIComponent(`${titre} ${auteur}`.trim());
+      return [
+        { t: "Voir sur Goodreads", u: fiche || "https://www.goodreads.com/search?q=" + q },
+        { t: "Babelio", u: "https://www.babelio.com/recherche.php?Recherche=" + encodeURIComponent(titre) },
+        { t: "En audio sur Spotify", u: `https://open.spotify.com/search/${q}/audiobooks` },
+      ];
+    };
+    const [aLire, lus] = goodreads ? await Promise.all([etagere(goodreads, "to-read"), etagere(goodreads, "read")]) : [[], []];
+    const connus = new Set([...aLire, ...lus].map((b) => simple(b.titre)));
+    const neuf = (arr: any[]) => arr.filter((b) => !connus.has(simple(b.titre)));
+    const carte = (p: any, pourquoi: string, label = "Livre", fiche?: string) =>
+      ({ type: "livre", label, ...p, pourquoi, plateformes: [], liens: liensLivre(p.titre, p.auteur || "", fiche) });
+
+    if (envie) {
+      const l = neuf(await livresRecents(envie));
+      if (l.length) return carte(choisir(l).pick, `En lien avec ton sujet : ${envie}.`);
+    }
+    const tirage = Math.random();
+    if (!envie && aLire.length && tirage < 0.4) {
+      const p = choisir(aLire).pick;
+      return carte(p, "Il attend dans ta liste « à lire » sur Goodreads.", "Dans ta liste à lire", "https://www.goodreads.com/book/show/" + p.id);
+    }
+    if (!envie && aLire.length && tirage < 0.8) {
+      const source = hasard(aLire.filter((b) => b.auteur));
+      const l = source ? neuf(await livresRecents(source.auteur)).filter((b) => simple(b.auteur).includes(simple(source.auteur).split(" ").pop() || "")) : [];
+      if (l.length) return carte(choisir(l).pick, `Dans l'esprit de ta liste à lire : du même auteur que « ${source.titre} ».`);
+    }
+    if (Math.random() < 0.2) {
+      const c = await livres(envie.split(" ")[0] || "");
+      if (c.length) return { type: "livre", label: "Classique gratuit", ...choisir(c).pick,
+        pourquoi: "Un classique libre de droits, à lire gratuitement sur liseuse ou téléphone.", plateformes: ["Projet Gutenberg"] };
+    }
+    const l = neuf(await livresRecents(theme || AUDIO[body.humeur] || "roman"));
+    return l.length ? carte(choisir(l).pick, "Une lecture raccord avec ton envie du moment.") : null;
+  };
+
+  const [films, series, docus, pods, audios, livre] = await Promise.all([
+    cats.includes("film") ? trouver("movie", famille ? "10751|16" : mood.movie, minutes) : rien,
+    cats.includes("serie") ? trouver("tv", famille ? "10751|16" : mood.tv) : rien,
+    cats.includes("docu") ? trouver("movie", "99", minutes, true) : rien,
+    cats.includes("podcast") ? podcasts(theme || mood.pod) : [],
+    cats.includes("audio") ? livresAudio(theme || AUDIO[body.humeur] || "roman") : [],
+    cats.includes("livre") ? proposerLivre() : null,
+  ]);
+
   const duree = minutes >= 300 ? "" : ` Tient dans tes ${minutes >= 60 ? Math.floor(minutes / 60) + " h" + (minutes % 60 ? " " + (minutes % 60) : "") : minutes + " min"}.`;
 
   const out: any[] = [];
-  const ecran = async (key: string, arr: any[], kind: "movie" | "tv", label: string, phrase: string) => {
+  const ecran = async (key: string, res: { liste: any[]; sujet: boolean }, kind: "movie" | "tv", label: string, phrase: string) => {
+    const arr = res.liste;
     if (!arr.length) return;
+    if (res.sujet) phrase = `En lien avec ton sujet : ${envie}.`;
     const { pick, planB } = choisir(arr);
     const prov = await providers(kind, pick.id);
     const note = pick.note ? ` Noté ${pick.note.toFixed(1)}/10.` : "";
@@ -257,51 +341,38 @@ Deno.serve(async (req) => {
   if (pods.length) {
     const { pick } = choisir(pods);
     const { apple, ...p } = pick;
-    out.push({ type: "podcast", label: "Podcast", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "À écouter en voiture ou en cuisinant.",
+    out.push({ type: "podcast", label: "Podcast", ...p, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : "À écouter en voiture ou en cuisinant.",
       plateformes: ["Spotify", "YouTube", "Apple Podcasts"], liens: liensEcoute(p.titre, p.auteur || "", "podcast", { t: "Apple Podcasts", u: apple }) });
   }
   if (audios.length) {
     const { apple, ...p } = choisir(audios).pick;
-    out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
+    out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
       plateformes: ["Spotify"], liens: liensEcoute(`${p.titre} ${p.auteur || ""}`.trim(), "", "audio").slice(0, 1) });
   }
-  if (nouveaux.length) {
-    const p = choisir(nouveaux).pick;
-    const q = encodeURIComponent(`${p.titre} ${p.auteur}`);
-    out.push({ type: "livre", label: "Livre", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "Une lecture raccord avec ton envie du moment.",
-      plateformes: [], liens: [
-        { t: "Voir sur Goodreads", u: "https://www.goodreads.com/search?q=" + q },
-        { t: "Babelio", u: "https://www.babelio.com/recherche.php?Recherche=" + encodeURIComponent(p.titre) },
-        { t: "En audio sur Spotify", u: `https://open.spotify.com/search/${q}/audiobooks` },
-      ] });
-  }
-  if (books.length) {
-    const { pick } = choisir(books);
-    out.push({ type: "livre", label: "Classique gratuit", ...pick, pourquoi: "Un classique libre de droits, à lire gratuitement sur liseuse ou téléphone.", plateformes: ["Projet Gutenberg"] });
-  }
+  if (livre) out.push(livre);
   if (cats.includes("youtube")) {
     const libres = mood.yt.filter(([c]) => !deja.has(c));
     const [chaine, rech] = envie ? [envie, envie] : hasard(libres.length ? libres : mood.yt);
     const recherche = "https://www.youtube.com/results?search_query=" + encodeURIComponent(rech);
     // Le plus souvent une vidéo précise, parfois une chaîne à explorer
-    const vids = Math.random() < 0.75 ? (await videosYoutube(rech, minutes)).slice(0, 12) : [];
+    const vids = envie || Math.random() < 0.75 ? (await videosYoutube(rech, minutes)).slice(0, 12) : [];
     if (vids.length) {
       const v = choisir(vids).pick;
       const liens = [{ t: "Regarder", u: "https://www.youtube.com/watch?v=" + v.id }];
       if (v.chaine) liens.push({ t: "La chaîne", u: v.chaine });
       out.push({ type: "youtube", label: "Vidéo YouTube", titre: v.titre, auteur: [v.auteur, v.duree].filter(Boolean).join(" · "),
-        affiche: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : mood.phrase,
+        affiche: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : mood.phrase,
         liens, plateformes: ["YouTube"] });
     } else {
-      out.push({ type: "youtube", label: envie ? "YouTube" : "Chaîne YouTube", titre: chaine, auteur: envie ? "Recherche sur ton envie" : "Chaîne à explorer",
-        pourquoi: envie ? "Les meilleures vidéos sur ton envie du moment." : mood.phrase,
+      out.push({ type: "youtube", label: envie ? "YouTube" : "Chaîne YouTube", titre: chaine, auteur: envie ? "Recherche sur ton sujet" : "Chaîne à explorer",
+        pourquoi: envie ? "Les meilleures vidéos sur ton sujet du moment." : mood.phrase,
         liens: [{ t: "Voir sur YouTube", u: recherche }], plateformes: ["YouTube"] });
     }
   }
   if (cats.includes("musique")) {
-    const [titre, rech] = hasard(mood.zik);
+    const [titre, rech] = envie ? [`Ambiance : ${envie}`, envie + " playlist"] : hasard(mood.zik);
     const q = encodeURIComponent(rech);
-    out.push({ type: "musique", label: "Musique", titre, auteur: "Ambiance " + mood.label, pourquoi: "Une ambiance sonore raccord avec ton humeur.",
+    out.push({ type: "musique", label: "Musique", titre, auteur: "Ambiance " + mood.label, pourquoi: envie ? "Une ambiance sonore raccord avec ton sujet." : "Une ambiance sonore raccord avec ton humeur.",
       lien: "https://open.spotify.com/search/" + q, lien2: "https://www.youtube.com/results?search_query=" + q, plateformes: ["Spotify gratuit", "YouTube"] });
   }
 
