@@ -62,7 +62,7 @@ async function idsPlateformes(kind: "movie" | "tv") {
 }
 
 // Titres de moins de 30 ans, inclus dans l'abonnement Netflix, Canal+ ou Disney+ en France
-async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number, motsCles = "") {
+async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number, motsCles = "", vo = "") {
   const il30 = new Date(); il30.setFullYear(il30.getFullYear() - 30);
   const params: Record<string, string> = {
     language: "fr-FR", watch_region: "FR", with_watch_monetization_types: "flatrate",
@@ -72,6 +72,7 @@ async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: numbe
     page: motsCles ? "1" : String(1 + Math.floor(Math.random() * 3)),
   };
   if (genres) params.with_genres = genres;
+  if (vo) { params.with_original_language = vo; params["vote_count.gte"] = "5"; params.page = "1"; }
   if (motsCles) params.with_keywords = motsCles;
   if (kind === "movie" && maxMinutes && maxMinutes < 300) params["with_runtime.lte"] = String(maxMinutes);
   let data = await tmdbFetch(`/discover/${kind}`, params);
@@ -83,12 +84,32 @@ async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: numbe
   }));
 }
 
+// Traduction gratuite (MyMemory). En cas d'échec on garde le texte d'origine.
+async function traduire(texte: string, vers: string) {
+  if (!texte || vers === "fr") return texte;
+  try {
+    const d = await (await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(texte)}&langpair=fr|${vers}`)).json();
+    const t = String(d?.responseData?.translatedText || "").trim();
+    return t && !/MYMEMORY WARNING|INVALID/i.test(t) ? t : texte;
+  } catch { return texte; }
+}
+
+// Livres dans une langue donnée (Google Livres, sans clé)
+async function googleLivres(term: string, langue: string) {
+  try {
+    const d = await (await fetch(`https://www.googleapis.com/books/v1/volumes?q=${encodeURIComponent(term)}&langRestrict=${langue}&printType=books&maxResults=25`)).json();
+    return (d.items || []).map((x: any) => x.volumeInfo).filter((v: any) => v?.title && (!v.language || v.language === langue)).map((v: any) => ({
+      id: v.title, titre: v.title, auteur: (v.authors || []).join(", "), annee: String(v.publishedDate || "").slice(0, 4),
+      affiche: String(v.imageLinks?.thumbnail || "").replace("http://", "https://") || null,
+    }));
+  } catch { return []; }
+}
+
 // Sujet libre -> mots-clés TMDB. Ils sont en anglais, donc on traduit d'abord le sujet.
 async function motsClesTmdb(sujet: string) {
   let en = "";
   try {
-    const d = await (await fetch(`https://api.mymemory.translated.net/get?q=${encodeURIComponent(sujet)}&langpair=fr|en`)).json();
-    en = String(d?.responseData?.translatedText || "");
+    en = await traduire(sujet, "en");
   } catch { /* on fera sans traduction */ }
   const termes = [...new Set([en, sujet, ...en.split(/\s+/).filter((w) => w.length > 3)].map((t) => t.trim().toLowerCase()).filter(Boolean))].slice(0, 5);
   const res = await Promise.all(termes.map((t) => tmdbFetch("/search/keyword", { query: t })));
@@ -132,9 +153,9 @@ async function livresAudio(term: string) {
 }
 const AUDIO: Record<string, string> = { rire: "humour", frissons: "thriller", evasion: "aventure", emotion: "roman", curieux: "histoire", cocon: "roman feel good", adrenaline: "polar" };
 
-async function podcasts(term: string) {
+async function podcasts(term: string, pays = "FR") {
   try {
-    const r = await fetch(`https://itunes.apple.com/search?media=podcast&country=FR&lang=fr_fr&limit=15&term=${encodeURIComponent(term)}`);
+    const r = await fetch(`https://itunes.apple.com/search?media=podcast&country=${pays}&limit=15&term=${encodeURIComponent(term)}`);
     return ((await r.json()).results || []).map((p: any) => ({
       id: p.collectionId, titre: p.collectionName, auteur: p.artistName,
       affiche: p.artworkUrl600 || p.artworkUrl100, apple: p.collectionViewUrl,
@@ -142,9 +163,9 @@ async function podcasts(term: string) {
   } catch { return []; }
 }
 
-async function livres(term: string) {
+async function livres(term: string, langue = "fr") {
   try {
-    const r = await fetch(`https://gutendex.com/books/?languages=fr${term ? "&search=" + encodeURIComponent(term) : ""}`);
+    const r = await fetch(`https://gutendex.com/books/?languages=${langue}${term ? "&search=" + encodeURIComponent(term) : ""}`);
     return ((await r.json()).results || []).slice(0, 20).map((b: any) => ({
       id: b.id, titre: b.title, auteur: b.authors?.[0]?.name || "",
       affiche: b.formats?.["image/jpeg"] || null, lien: `https://www.gutenberg.org/ebooks/${b.id}`,
@@ -184,12 +205,12 @@ async function etagere(id: string, nom: string) {
 // Vraies vidéos YouTube : API officielle si la clé gratuite YOUTUBE_API_KEY existe, sinon lecture de la page de recherche
 const secondes = (t: string) => t.split(":").reduce((a, n) => a * 60 + Number(n), 0);
 const propre = (t: string) => t.replace(/&amp;/g, "&").replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">");
-async function videosYoutube(rech: string, maxMinutes: number) {
+async function videosYoutube(rech: string, maxMinutes: number, langue = "fr", pays = "FR") {
   const key = Deno.env.get("YOUTUBE_API_KEY");
   try {
     if (key) {
       const u = new URL("https://www.googleapis.com/youtube/v3/search");
-      const p: Record<string, string> = { part: "snippet", type: "video", maxResults: "20", q: rech, relevanceLanguage: "fr", regionCode: "FR",
+      const p: Record<string, string> = { part: "snippet", type: "video", maxResults: "20", q: rech, relevanceLanguage: langue, regionCode: pays,
         videoDuration: maxMinutes <= 30 ? "medium" : "any", key };
       for (const [k, v] of Object.entries(p)) u.searchParams.set(k, v);
       const d = await (await fetch(u)).json();
@@ -198,9 +219,9 @@ async function videosYoutube(rech: string, maxMinutes: number) {
         chaine: "https://www.youtube.com/channel/" + x.snippet.channelId,
       }));
     }
-    const r = await fetch("https://www.youtube.com/results?hl=fr&gl=FR&search_query=" + encodeURIComponent(rech), {
+    const r = await fetch(`https://www.youtube.com/results?hl=${langue}&gl=${pays}&search_query=` + encodeURIComponent(rech), {
       headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0 Safari/537.36",
-        "Accept-Language": "fr-FR,fr;q=0.9", Cookie: "SOCS=CAI; CONSENT=YES+1" },
+        "Accept-Language": langue === "fr" ? "fr-FR,fr;q=0.9" : `${langue},fr;q=0.5`, Cookie: "SOCS=CAI; CONSENT=YES+1" },
     });
     const m = (await r.text()).match(/var ytInitialData = (\{.*?\});<\/script>/s);
     if (!m) return [];
@@ -246,7 +267,17 @@ Deno.serve(async (req) => {
   const deja = new Set((Array.isArray(body.deja) ? body.deja : []).map(String));
   const famille = String(body.avec || "").includes("famille");
 
-  const theme = envie || (gouts.length ? hasard(gouts) : "");
+  // Langue du contenu : "" (toutes), fr, ar ou en
+  const langue = ["fr", "ar", "en"].includes(body.langue) ? String(body.langue) : "";
+  const L = langue || "fr";
+  const autre = L !== "fr";
+  const pays = ({ fr: "FR", ar: "EG", en: "US" } as Record<string, string>)[L];
+  const nomLangue = ({ fr: "français", ar: "arabe", en: "anglais" } as Record<string, string>)[L];
+  const SUJET_YT: Record<string, string> = { rire: "sketch humour", frissons: "histoires mystérieuses", evasion: "documentaire voyage", emotion: "histoire émouvante",
+    curieux: "documentaire science", cocon: "documentaire nature", adrenaline: "sports extrêmes" };
+  const cleHumeur = MOODS[body.humeur] ? String(body.humeur) : "cocon";
+
+  const theme = envie || (gouts.length && !autre ? hasard(gouts) : "");
   const goodreads = (String(body.goodreads || "").match(/\d{3,}/) || [""])[0];
 
   // Choix : on écarte le déjà proposé, on garde les mieux notés, puis on tire au sort
@@ -263,10 +294,12 @@ Deno.serve(async (req) => {
   const mc = envie && cats.some((c) => ["film", "serie", "docu"].includes(c)) ? await motsClesTmdb(envie) : "";
   const trouver = async (kind: "movie" | "tv", genres: string, max?: number, docu = false) => {
     if (mc) {
-      const liste = await discover(kind, docu ? genres : "", max, mc);
+      const liste = await discover(kind, docu ? genres : "", max, mc, langue);
       if (liste.length) return { liste, sujet: true };
     }
-    return { liste: await discover(kind, genres, max), sujet: false };
+    const liste = await discover(kind, genres, max, "", langue);
+    // Dans une langue précise le choix est plus mince : on élargit à tous les genres plutôt que de ne rien proposer
+    return { liste: liste.length || !langue || docu ? liste : await discover(kind, "", max, "", langue), sujet: false };
   };
   const rien = { liste: [] as any[], sujet: false };
 
@@ -286,6 +319,12 @@ Deno.serve(async (req) => {
     const carte = (p: any, pourquoi: string, label = "Livre", fiche?: string) =>
       ({ type: "livre", label, ...p, pourquoi, plateformes: [], liens: liensLivre(p.titre, p.auteur || "", fiche) });
 
+    if (autre) {
+      const l = neuf(await googleLivres(await traduire(envie || AUDIO[cleHumeur], L), L));
+      if (!l.length) return null;
+      const p = choisir(l).pick;
+      return { ...carte(p, envie ? `En ${nomLangue}, en lien avec ton sujet : ${envie}.` : `Une lecture en ${nomLangue}.`), liens: liensLivre(p.titre, p.auteur || "").filter((x) => x.t !== "Babelio") };
+    }
     if (envie) {
       const l = neuf(await livresRecents(envie));
       if (l.length) return carte(choisir(l).pick, `En lien avec ton sujet : ${envie}.`);
@@ -313,8 +352,8 @@ Deno.serve(async (req) => {
     cats.includes("film") ? trouver("movie", famille ? "10751|16" : mood.movie, minutes) : rien,
     cats.includes("serie") ? trouver("tv", famille ? "10751|16" : mood.tv) : rien,
     cats.includes("docu") ? trouver("movie", "99", minutes, true) : rien,
-    cats.includes("podcast") ? podcasts(theme || mood.pod) : [],
-    cats.includes("audio") ? livresAudio(theme || AUDIO[body.humeur] || "roman") : [],
+    cats.includes("podcast") ? (async () => podcasts(await traduire(theme || mood.pod, L), pays))() : [],
+    cats.includes("audio") ? (async () => autre ? googleLivres(await traduire(envie || AUDIO[cleHumeur], L), L) : livresAudio(theme || AUDIO[cleHumeur]))() : [],
     cats.includes("livre") ? proposerLivre() : null,
   ]);
 
@@ -345,17 +384,18 @@ Deno.serve(async (req) => {
       plateformes: ["Spotify", "YouTube", "Apple Podcasts"], liens: liensEcoute(p.titre, p.auteur || "", "podcast", { t: "Apple Podcasts", u: apple }) });
   }
   if (audios.length) {
-    const { apple, ...p } = choisir(audios).pick;
+    const { apple, ...p } = choisir(audios).pick as any;
     out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
-      plateformes: ["Spotify"], liens: liensEcoute(`${p.titre} ${p.auteur || ""}`.trim(), "", "audio").slice(0, 1) });
+      plateformes: autre ? ["Spotify", "YouTube"] : ["Spotify"], liens: liensEcoute(`${p.titre} ${p.auteur || ""}`.trim(), "", "audio").slice(0, autre ? 2 : 1) });
   }
   if (livre) out.push(livre);
   if (cats.includes("youtube")) {
     const libres = mood.yt.filter(([c]) => !deja.has(c));
-    const [chaine, rech] = envie ? [envie, envie] : hasard(libres.length ? libres : mood.yt);
+    let [chaine, rech] = envie ? [envie, envie] : hasard(libres.length ? libres : mood.yt);
+    if (autre) { rech = await traduire(envie || SUJET_YT[cleHumeur], L); chaine = rech; }
     const recherche = "https://www.youtube.com/results?search_query=" + encodeURIComponent(rech);
     // Le plus souvent une vidéo précise, parfois une chaîne à explorer
-    const vids = envie || Math.random() < 0.75 ? (await videosYoutube(rech, minutes)).slice(0, 12) : [];
+    const vids = envie || autre || Math.random() < 0.75 ? (await videosYoutube(rech, minutes, L, pays)).slice(0, 12) : [];
     if (vids.length) {
       const v = choisir(vids).pick;
       const liens = [{ t: "Regarder", u: "https://www.youtube.com/watch?v=" + v.id }];
@@ -364,13 +404,16 @@ Deno.serve(async (req) => {
         affiche: `https://i.ytimg.com/vi/${v.id}/hqdefault.jpg`, pourquoi: envie ? `En lien avec ton sujet : ${envie}.` : mood.phrase,
         liens, plateformes: ["YouTube"] });
     } else {
-      out.push({ type: "youtube", label: envie ? "YouTube" : "Chaîne YouTube", titre: chaine, auteur: envie ? "Recherche sur ton sujet" : "Chaîne à explorer",
+      out.push({ type: "youtube", label: envie || autre ? "YouTube" : "Chaîne YouTube", titre: chaine, auteur: envie ? "Recherche sur ton sujet" : autre ? `Vidéos en ${nomLangue}` : "Chaîne à explorer",
         pourquoi: envie ? "Les meilleures vidéos sur ton sujet du moment." : mood.phrase,
         liens: [{ t: "Voir sur YouTube", u: recherche }], plateformes: ["YouTube"] });
     }
   }
   if (cats.includes("musique")) {
-    const [titre, rech] = envie ? [`Ambiance : ${envie}`, envie + " playlist"] : hasard(mood.zik);
+    const tirage = hasard(mood.zik);
+    const prefixe = ({ fr: "", ar: "arabic ", en: "english " } as Record<string, string>)[L];
+    const [titre, rech] = envie ? [`Ambiance : ${envie}`, prefixe + envie + " playlist"]
+      : autre ? [`${tirage[0]}, en ${nomLangue}`, prefixe + tirage[1]] : tirage;
     const q = encodeURIComponent(rech);
     out.push({ type: "musique", label: "Musique", titre, auteur: "Ambiance " + mood.label, pourquoi: envie ? "Une ambiance sonore raccord avec ton sujet." : "Une ambiance sonore raccord avec ton humeur.",
       lien: "https://open.spotify.com/search/" + q, lien2: "https://www.youtube.com/results?search_query=" + q, plateformes: ["Spotify gratuit", "YouTube"] });

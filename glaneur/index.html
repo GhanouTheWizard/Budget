@@ -153,6 +153,8 @@ textarea{min-height:96px;resize:vertical}
         <div class="champ"><input type="text" id="envie" placeholder="ex. les trous noirs, le jazz…" enterkeyhint="search"><button type="button" id="effacer" aria-label="Effacer le sujet">✕</button></div>
         <p class="aide">Décris ce qui t'intéresse : tout ce que je propose ira dans ce sens.</p></div>
 
+      <div class="q"><h2>Langue du contenu</h2><div class="puces" id="langue"></div></div>
+
       <div class="q"><h2>1. Je cherche <small>(plusieurs choix possibles)</small></h2><div class="puces" id="cats"></div></div>
       <div class="q"><h2>2. J'ai envie de</h2><div class="humeurs" id="humeurs"></div></div>
       <div class="q"><h2>3. J'ai devant moi</h2><div class="puces" id="temps"></div></div>
@@ -207,6 +209,7 @@ const HUMEURS = [
 const TEMPS = [{k:30,t:"30 min"},{k:60,t:"1 h"},{k:100,t:"1 h 40"},{k:150,t:"2 h et plus"},{k:400,t:"Tout le week-end"}];
 const ENERGIE = [{k:"cerveau en veille",t:"Fatigué"},{k:"normale",t:"Normale"},{k:"à fond, prêt à réfléchir",t:"En forme"}];
 const AVEC = [{k:"seul",t:"Seul"},{k:"en couple",t:"En couple"},{k:"en famille avec des enfants",t:"En famille"},{k:"entre amis",t:"Entre amis"}];
+const LANGUES = [{k:"",t:"Toutes"},{k:"fr",t:"Français"},{k:"ar",t:"العربية · Arabe"},{k:"en",t:"Anglais"}];
 const CATS = [
   {k:"film",i:"🎬",t:"Film"},{k:"serie",i:"📺",t:"Série"},{k:"docu",i:"🌍",t:"Docu"},{k:"youtube",i:"▶️",t:"YouTube"},
   {k:"podcast",i:"🎧",t:"Podcast"},{k:"audio",i:"🔊",t:"Livre audio"},{k:"musique",i:"🎵",t:"Musique"},{k:"livre",i:"📖",t:"Livre"}
@@ -221,7 +224,7 @@ const S = {
 };
 const etat = {
   humeur:S.get("humeur","cocon"), temps:S.get("temps",100), energie:S.get("energie","normale"),
-  avec:S.get("avec","seul"), cats:S.get("cats",["film","serie","youtube","podcast"])
+  avec:S.get("avec","seul"), langue:S.get("langue",""), cats:S.get("cats",["film","serie","youtube","podcast"])
 };
 
 const $ = id => document.getElementById(id);
@@ -296,7 +299,7 @@ async function glaner(){
   let humeur=etat.humeur;
   if(humeur==="surprise"){const h=HUMEURS.filter(x=>x.k!=="surprise");humeur=h[Math.floor(Math.random()*h.length)].k}
   const corps={
-    humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, categories:etat.cats,
+    humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, langue:etat.langue, categories:etat.cats,
     envie:$("envie").value.trim(), gouts:S.get("gouts",""), goodreads:S.get("goodreads",""), deja:S.get("deja",[])
   };
   try{
@@ -325,7 +328,7 @@ async function autre(i,b){
   const deja=S.get("deja",[]);
   try{
     const r=await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({
-      humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, categories:[x.type],
+      humeur, temps:etat.temps, energie:etat.energie, avec:etat.avec, langue:etat.langue, categories:[x.type],
       envie:$("envie").value.trim(), gouts:S.get("gouts",""), goodreads:S.get("goodreads",""), deja:[...deja,...window._derniers.map(y=>y.titre)]})});
     const d=await r.json();
     const n=(d.resultats||[]).find(y=>y.type===x.type);
@@ -355,8 +358,8 @@ function carteHTML(x,mode,i){
     <div class="affiche${carre}" ${img}>${x.affiche?"":ICONES[x.type]||"✦"}</div>
     <div>
       <span class="etiquette">${esc(x.label||NOMS[x.type]||x.type)}</span>
-      <h3>${esc(x.titre)}</h3>
-      <div class="qui">${[x.annee,x.auteur].filter(Boolean).map(esc).join(" · ")}</div>
+      <h3 dir="auto">${esc(x.titre)}</h3>
+      <div class="qui" dir="auto">${[x.annee,x.auteur].filter(Boolean).map(esc).join(" · ")}</div>
       ${x.pourquoi?`<p class="pourquoi">${esc(x.pourquoi)}</p>`:""}
       ${ou}
       <div class="actions">${lien}${lien2}${act}</div>
@@ -438,7 +441,7 @@ function apercu(){
 }
 
 /* mise à jour automatique : si une version plus récente est en ligne, on recharge */
-const VERSION="6";
+const VERSION="7";
 async function verifierVersion(){
   try{
     const r=await fetch("version.json?t="+Date.now(),{cache:"no-store"});
@@ -452,6 +455,7 @@ document.addEventListener("visibilitychange",()=>{if(!document.hidden)verifierVe
 /* init */
 humeurs();
 puces("cats",CATS,"cats",true);
+puces("langue",LANGUES,"langue");
 puces("temps",TEMPS,"temps");
 puces("energie",ENERGIE,"energie");
 puces("avec",AVEC,"avec");
