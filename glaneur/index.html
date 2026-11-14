@@ -221,20 +221,15 @@ textarea{min-height:90px;resize:vertical}
     </div>
     <div class="bloc">
       <h2>Tes goûts</h2>
-      <p class="aide">Ce que tu aimes en général. L'IA s'en sert à chaque pioche.</p>
+      <p class="aide">Ce que tu aimes en général. Le Glaneur s'en sert pour tes podcasts.</p>
       <textarea id="gouts" placeholder="ex. astronomie, sciences, romans français, polars, jazz, documentaires nature…"></textarea>
-    </div>
-    <div class="bloc">
-      <h2>Code d'accès</h2>
-      <p class="aide">Le code que tu as choisi dans Supabase (GLANEUR_CODE). Il protège ta clé IA.</p>
-      <input type="text" id="code" placeholder="Ton code" autocomplete="off">
     </div>
     <div class="bloc">
       <h2>Historique</h2>
       <p class="aide">Le Glaneur évite de te reproposer ce qu'il t'a déjà montré récemment.</p>
       <button class="btn fant" id="btnOubli">Effacer l'historique des propositions</button>
     </div>
-    <p class="petit" style="margin-top:18px;text-align:center">Données : TMDB (disponibilités via JustWatch), Apple Podcasts, Projet Gutenberg. Recommandations : Claude.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
+    <p class="petit" style="margin-top:18px;text-align:center">Données : TMDB (disponibilités via JustWatch), Apple Podcasts, Projet Gutenberg. 100 % gratuit, sans abonnement.<br>Ce produit utilise l'API TMDB sans être approuvé ni certifié par TMDB.</p>
   </section>
 </div>
 
@@ -327,7 +322,7 @@ function stats(){
 }
 
 /* chargement */
-const PHRASES=["On parcourt les champs…","On trie le bon grain…","On vérifie ce qui est gratuit en France…","On demande l'avis du Glaneur…","Presque prêt…"];
+const PHRASES=["On parcourt les champs…","On trie le bon grain…","On vérifie ce qui est gratuit en France…","On tire les meilleures pépites…","Presque prêt…"];
 function chargement(){
   const r=$("resultats");
   r.style.display="block"; $("accueil").style.display="none";
@@ -349,7 +344,7 @@ async function glaner(){
     envie:$("envie").value.trim(), gouts:S.get("gouts",""), deja:S.get("deja",[])
   };
   try{
-    const r=await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json","x-glaneur-code":S.get("code","")},body:JSON.stringify(corps)});
+    const r=await fetch(FONCTION,{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(corps)});
     const d=await r.json().catch(()=>({error:"reseau"}));
     clearInterval(window._ph);
     if(d.error==="config"){afficher(apercu(),true);return}
@@ -396,7 +391,7 @@ function carteHTML(x,mode,i){
 function afficher(d,demo){
   const r=$("resultats");
   const res=(d.resultats||[]);
-  let h = demo?`<div class="bandeau info" style="margin-top:24px"><b>Mode aperçu.</b> Le Glaneur n'est pas encore branché : ces cartes sont des exemples. Ajoute tes clés dans Supabase pour des vraies pioches.</div>`:"";
+  let h = demo?`<div class="bandeau info" style="margin-top:24px"><b>Mode aperçu.</b> Le Glaneur n'est pas encore branché : ces cartes sont des exemples. Ajoute la clé TMDB gratuite dans Supabase pour des vraies pioches.</div>`:"";
   h+=`<p class="accroche">${esc(d.accroche||"Voilà ta récolte.")}</p>`;
   if(!res.length) h+=`<div class="bandeau">Rien trouvé cette fois. Change d'humeur ou ajoute des catégories.</div>`;
   h+=`<p class="meta-res">${res.length} pépite${res.length>1?"s":""} glanée${res.length>1?"s":""}, gratuites et légales en France.</p>`;
@@ -435,14 +430,14 @@ document.querySelectorAll(".nav button").forEach(b=>b.onclick=()=>{
 });
 
 /* réglages */
-[["prenom","prenom"],["gouts","gouts"],["code","code"]].forEach(([id,k])=>{
+[["prenom","prenom"],["gouts","gouts"]].forEach(([id,k])=>{
   $(id).value=S.get(k,"");
   $(id).addEventListener("input",()=>{S.set(k,$(id).value.trim());if(k==="prenom")salut();bandeau()});
 });
 $("btnOubli").onclick=()=>{S.set("deja",[]);toast("Historique effacé")};
 
 function bandeau(){
-  $("bandeauConfig").innerHTML=S.get("code","")?"":`<div class="bandeau info">Première fois ? Va dans <b>Réglages</b> pour entrer ton code d'accès et tes goûts.</div>`;
+  $("bandeauConfig").innerHTML=(S.get("gouts","")||S.get("prenom",""))?"":`<div class="bandeau info">Première fois ? Va dans <b>Réglages</b> pour entrer ton prénom et tes goûts.</div>`;
 }
 
 /* aperçu sans clés */
