@@ -1,11 +1,12 @@
-// Le Glaneur : fonction de recommandation (Supabase Edge Function), 100 % gratuite
+// Le Glaneur : fonction de recommandation (Supabase Edge Function), sans clé payante
+// Films, séries et docus : moins de 30 ans, disponibles en France sur Netflix, Canal+ ou Disney+
 // Un seul secret à définir dans Supabase > Edge Functions > Secrets :
 //   TMDB_API_KEY  clé v3 ou jeton de lecture TMDB (themoviedb.org, gratuit)
 
 const CORS = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-glaneur-code",
-  "Access-Control-Allow-Methods": "POST, OPTIONS",
+  "Access-Control-Allow-Methods": "POST, GET, OPTIONS",
 };
 const json = (data: unknown, status = 200) =>
   new Response(JSON.stringify(data), { status, headers: { ...CORS, "Content-Type": "application/json" } });
@@ -47,10 +48,25 @@ function tmdbFetch(path: string, params: Record<string, string>) {
   return fetch(url, { headers }).then((r) => (r.ok ? r.json() : { results: [] })).catch(() => ({ results: [] }));
 }
 
-// Titres disponibles gratuitement (gratuit ou avec pub) en France
+// Plateformes retenues (abonnements d'Abdelghani)
+const PLATEFORMES: [RegExp, string][] = [[/netflix/i, "Netflix"], [/canal\s*\+|canal plus|mycanal/i, "Canal+"], [/disney/i, "Disney+"]];
+const nomPlateforme = (n: string) => PLATEFORMES.find(([re]) => re.test(n))?.[1] || null;
+const SECOURS_IDS = "8|381|337"; // Netflix, Canal+, Disney+ (identifiants TMDB)
+
+// Identifiants TMDB des plateformes, relus dans la liste officielle pour la France
+async function idsPlateformes(kind: "movie" | "tv") {
+  const d = await tmdbFetch(`/watch/providers/${kind}`, { watch_region: "FR", language: "fr-FR" });
+  const ids = (d.results || []).filter((p: any) => nomPlateforme(p.provider_name || "")).map((p: any) => p.provider_id);
+  return ids.length ? ids.join("|") : SECOURS_IDS;
+}
+
+// Titres de moins de 30 ans, inclus dans l'abonnement Netflix, Canal+ ou Disney+ en France
 async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: number) {
+  const il30 = new Date(); il30.setFullYear(il30.getFullYear() - 30);
   const params: Record<string, string> = {
-    language: "fr-FR", watch_region: "FR", with_watch_monetization_types: "free|ads",
+    language: "fr-FR", watch_region: "FR", with_watch_monetization_types: "flatrate",
+    with_watch_providers: await idsPlateformes(kind),
+    [kind === "movie" ? "primary_release_date.gte" : "first_air_date.gte"]: il30.toISOString().slice(0, 10),
     with_genres: genres, sort_by: "popularity.desc", "vote_count.gte": "40",
     page: String(1 + Math.floor(Math.random() * 3)),
   };
@@ -66,17 +82,47 @@ async function discover(kind: "movie" | "tv", genres: string, maxMinutes?: numbe
 
 async function providers(kind: "movie" | "tv", id: number) {
   const fr = (await tmdbFetch(`/${kind}/${id}/watch/providers`, {}))?.results?.FR;
-  if (!fr) return { plateformes: [], lien: null };
-  const names = [...new Set([...(fr.free || []), ...(fr.ads || [])].map((p: any) => p.provider_name))];
-  return { plateformes: names, lien: fr.link || null };
+  if (!fr) return { plateformes: [] as string[], ou: null };
+  const names = [...new Set([...(fr.flatrate || []), ...(fr.ads || [])].map((p: any) => nomPlateforme(p.provider_name || "")).filter(Boolean))] as string[];
+  return { plateformes: names, ou: fr.link || null };
 }
+
+// Liens : Netflix en direct (recherche du titre), et la fiche « où regarder » qui mène à chaque plateforme
+function liensEcran(titre: string, plateformes: string[], ou: string | null) {
+  const liens: { t: string; u: string }[] = [];
+  if (plateformes.includes("Netflix")) liens.push({ t: "Netflix", u: "https://www.netflix.com/search?q=" + encodeURIComponent(titre) });
+  if (ou) liens.push({ t: "Où regarder", u: ou });
+  return liens;
+}
+
+// Liens d'écoute : Spotify, YouTube, et un troisième selon le cas
+function liensEcoute(titre: string, auteur: string, type: "podcast" | "audio", autre?: { t: string; u: string }) {
+  const q = encodeURIComponent(titre);
+  const liens = [
+    { t: "Spotify", u: `https://open.spotify.com/search/${q}/${type === "podcast" ? "shows" : "audiobooks"}` },
+    { t: "YouTube", u: "https://www.youtube.com/results?search_query=" + encodeURIComponent(`${titre} ${auteur} ${type === "podcast" ? "podcast" : "livre audio"}`.replace(/\s+/g, " ")) },
+  ];
+  if (autre?.u) liens.push(autre);
+  return liens;
+}
+
+async function livresAudio(term: string) {
+  try {
+    const r = await fetch(`https://itunes.apple.com/search?media=audiobook&country=FR&lang=fr_fr&limit=20&term=${encodeURIComponent(term)}`);
+    return ((await r.json()).results || []).map((p: any) => ({
+      id: p.collectionId, titre: p.collectionName, auteur: p.artistName,
+      affiche: (p.artworkUrl100 || "").replace("100x100", "600x600") || null, apple: p.collectionViewUrl,
+    }));
+  } catch { return []; }
+}
+const AUDIO: Record<string, string> = { rire: "humour", frissons: "thriller", evasion: "aventure", emotion: "roman", curieux: "histoire", cocon: "roman feel good", adrenaline: "polar" };
 
 async function podcasts(term: string) {
   try {
     const r = await fetch(`https://itunes.apple.com/search?media=podcast&country=FR&lang=fr_fr&limit=15&term=${encodeURIComponent(term)}`);
     return ((await r.json()).results || []).map((p: any) => ({
       id: p.collectionId, titre: p.collectionName, auteur: p.artistName,
-      affiche: p.artworkUrl600 || p.artworkUrl100, lien: p.collectionViewUrl,
+      affiche: p.artworkUrl600 || p.artworkUrl100, apple: p.collectionViewUrl,
     }));
   } catch { return []; }
 }
@@ -95,26 +141,35 @@ const hasard = <T>(arr: T[]) => arr[Math.floor(Math.random() * arr.length)];
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
-  if (req.method !== "POST") return json({ error: "method" }, 405);
+  if (req.method !== "POST" && req.method !== "GET") return json({ error: "method" }, 405);
   if (!Deno.env.get("TMDB_API_KEY")) return json({ error: "config", missing: ["TMDB_API_KEY"] });
 
   let body: any = {};
-  try { body = await req.json(); } catch { /* vide */ }
+  if (req.method === "GET") {
+    // Même demande, passée dans l'adresse (pratique pour vérifier) : ?humeur=rire&categories=film,serie
+    const q = new URL(req.url).searchParams;
+    body = Object.fromEntries(q);
+    if (q.get("categories")) body.categories = q.get("categories")!.split(",");
+  } else {
+    try { body = await req.json(); } catch { /* vide */ }
+  }
 
   const mood = MOODS[body.humeur] || MOODS.cocon;
   const minutes = Number(body.temps) || 120;
   const cats: string[] = Array.isArray(body.categories) && body.categories.length
-    ? body.categories : ["film", "serie", "docu", "podcast", "livre", "youtube", "musique"];
+    ? body.categories : ["film", "serie", "docu", "podcast", "audio", "livre", "youtube", "musique"];
   const envie = String(body.envie || "").trim().slice(0, 100);
   const gouts = String(body.gouts || "").split(/[,;\n]/).map((s) => s.trim()).filter(Boolean);
   const deja = new Set((Array.isArray(body.deja) ? body.deja : []).map(String));
   const famille = String(body.avec || "").includes("famille");
 
-  const [films, series, docus, pods, books] = await Promise.all([
+  const theme = envie || (gouts.length ? hasard(gouts) : "");
+  const [films, series, docus, pods, audios, books] = await Promise.all([
     cats.includes("film") ? discover("movie", famille ? "10751|16" : mood.movie, minutes) : [],
     cats.includes("serie") ? discover("tv", famille ? "10751|16" : mood.tv) : [],
     cats.includes("docu") ? discover("movie", "99", minutes) : [],
-    cats.includes("podcast") ? podcasts(envie || (gouts.length ? hasard(gouts) : mood.pod)) : [],
+    cats.includes("podcast") ? podcasts(theme || mood.pod) : [],
+    cats.includes("audio") ? livresAudio(theme || AUDIO[body.humeur] || "roman") : [],
     cats.includes("livre") ? livres(envie.split(" ")[0] || "") : [],
   ]);
 
@@ -135,19 +190,26 @@ Deno.serve(async (req) => {
     const { pick, planB } = choisir(arr);
     const prov = await providers(kind, pick.id);
     const note = pick.note ? ` Noté ${pick.note.toFixed(1)}/10.` : "";
-    out.push({ type: key, label, ...pick, ...prov, pourquoi: phrase + note + (kind === "movie" ? duree : ""),
+    out.push({ type: key, label, ...pick, plateformes: prov.plateformes, liens: liensEcran(pick.titre, prov.plateformes, prov.ou),
+      pourquoi: phrase + note + (kind === "movie" ? duree : ""),
       planB: planB ? { titre: planB.titre, annee: planB.annee } : null });
   };
   await Promise.all([
     ecran("film", films, "movie", "Film", mood.phrase),
     ecran("serie", series, "tv", "Série", mood.phrase + " Un épisode ou dix, à toi de voir."),
-    ecran("docu", docus, "movie", "Documentaire", "Un docu gratuit pour nourrir ta curiosité."),
+    ecran("docu", docus, "movie", "Documentaire", "Un docu pour nourrir ta curiosité."),
   ]);
 
   if (pods.length) {
     const { pick } = choisir(pods);
-    out.push({ type: "podcast", label: "Podcast", ...pick, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "À écouter en voiture ou en cuisinant.",
-      plateformes: ["Apple Podcasts", "aussi sur Deezer, Radio France…"] });
+    const { apple, ...p } = pick;
+    out.push({ type: "podcast", label: "Podcast", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "À écouter en voiture ou en cuisinant.",
+      plateformes: ["Spotify", "YouTube", "Apple Podcasts"], liens: liensEcoute(p.titre, p.auteur || "", "podcast", { t: "Apple Podcasts", u: apple }) });
+  }
+  if (audios.length) {
+    const { apple, ...p } = choisir(audios).pick;
+    out.push({ type: "audio", label: "Livre audio", ...p, pourquoi: envie ? `Trouvé pour ton envie : ${envie}.` : "Une histoire à écouter, en voiture ou les yeux fermés.",
+      plateformes: ["Spotify", "YouTube", "Apple Books"], liens: liensEcoute(p.titre, p.auteur || "", "audio", { t: "Apple Books", u: apple }) });
   }
   if (books.length) {
     const { pick } = choisir(books);
@@ -166,8 +228,8 @@ Deno.serve(async (req) => {
       lien: "https://open.spotify.com/search/" + q, lien2: "https://www.youtube.com/results?search_query=" + q, plateformes: ["Spotify gratuit", "YouTube"] });
   }
 
-  const order = ["film", "serie", "docu", "youtube", "podcast", "musique", "livre"];
+  const order = ["film", "serie", "docu", "youtube", "podcast", "audio", "musique", "livre"];
   out.sort((a, b) => order.indexOf(a.type) - order.indexOf(b.type));
-  const accroches = [`Voilà ta récolte, spéciale ${mood.label}.`, `Glané pour toi : humeur ${mood.label}.`, `Ta pioche ${mood.label} est prête.`];
+  const accroches = [`Voilà pour toi, spécial ${mood.label}.`, `Mes idées pour une envie de ${mood.label}.`];
   return json({ accroche: hasard(accroches), resultats: out });
 });
