@@ -592,6 +592,14 @@ body.calm .acct .bang{display:none}
 .calmR .a{font-size:15.5px;font-weight:700;font-variant-numeric:tabular-nums;white-space:nowrap}
 .calmR button{font-size:12.5px;font-weight:650;color:var(--ink-2);padding:6px 2px}
 .calmT{font-size:15px;font-weight:750;margin:0 0 8px} .calmN{font-size:14px;color:var(--ink-2);line-height:1.5}
+body.calm .todo .n{background:#E4E5F7;color:#272A4A}
+body.calm .qa2 button:first-child .i{background:#8C84E8!important} body.calm .fab{background:#5B3DF5}
+.calmH.watch{background:#F5EDD9;color:#3A3220}
+.calmH .ch{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}
+.calmH .ch div{background:rgba(255,255,255,.55);border-radius:16px;padding:9px 11px;font-size:12.5px;line-height:1.25;font-weight:600}
+.calmH .ch b{display:block;font-size:18px;font-weight:800;font-variant-numeric:tabular-nums;margin-top:2px}
+.calmH .fr{font-size:13px;line-height:1.4;margin-top:12px;padding:9px 11px;background:rgba(255,255,255,.55);border-radius:14px}
+.calmS{font-size:14px;font-weight:650;text-align:center;color:#2A6B52;background:#E7F5EC;border-radius:18px;padding:10px 14px;margin-bottom:14px}
 .calmBig{font-size:30px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums}
 </style>
 </head>
@@ -621,7 +629,7 @@ body.calm .acct .bang{display:none}
 <script>
 "use strict";
 const KEY="budget2.v1";
-const APP_VERSION="v43 · 18 novembre 2026";
+const APP_VERSION="v44 · 18 novembre 2026";
 const MONTHS=["janvier","février","mars","avril","mai","juin","juillet","août","septembre","octobre","novembre","décembre"];
 const MSHORT=["janv.","févr.","mars","avr.","mai","juin","juil.","août","sept.","oct.","nov.","déc."];
 const DAYS=["dimanche","lundi","mardi","mercredi","jeudi","vendredi","samedi"];
@@ -2151,7 +2159,7 @@ function openSheet(title,lead,fields,values,onSave,onDelete,delLabel){
 }
 function accOpts(){ return S.accounts.map(a=>({v:a.id,t:a.name,dot:accColor(a.id)})); }
 function toast(msg,ms){ const t=document.getElementById("toast"); t.innerHTML=msg; t.classList.toggle("act",!!t.querySelector("button")); t.classList.add("on"); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove("on","act"),ms||3600); }
-function go(t){ if(t!=="fil"){ filDay=null; filCat=null; } tab=t; render(); }
+function go(t){ if(t!=="fil"){ filDay=null; filCat=null; } if(t!=="today"){ calmOpen=false; calmAsk=false; } tab=t; render(); }
 
 /* ================= actions : le fil ================= */
 function toggleSeen(id){ const o=month(cur).ops.find(x=>x.id===id); if(o){ o.seen=!o.seen; persist(); render(); } }
@@ -2203,6 +2211,7 @@ function editOp(id){
       else { M.ops.push(Object.assign({id:uid(),seen:false,ts:Date.now()},Sync.on&&Sync.cfg.name?{by:Sync.cfg.name}:{},o));
         const C=calc(cur), c=cat(o.category), x=C.A[o.account];
         if(o.kind==="out" && o.waitRef){ toast(`−${eur(a)} · ${esc(accName(o.account))}<br>Avance notée : hors budget jusqu'au remboursement`); return; }
+        if(o.kind==="out" && Calm.on()){ toast(`C'est noté · ${esc(c.name)}`); return; }
         if(o.kind==="out" && envNotice(lvBefore,envLevelOf(o.category,C))) return;
         if(o.kind==="out"){
           const b=+c.budget||0, sp=C.byCat[c.id]||0;
@@ -3152,36 +3161,59 @@ function tipNow(){ const mood=accountsMood(), L=tipsFor(mood); if(!L.length) ret
    et tout ce qui demande une vraie action reste affiché, avec le montant et le geste à faire. */
 const CALM_KEY="budget2.serein";
 const Calm={ mem:null,
-  get(){ if(this.mem) return this.mem; try{ this.mem=JSON.parse(localStorage.getItem(CALM_KEY)||"null"); }catch(e){} return this.mem||(this.mem={on:false,day:0}); },
+  get(){ if(this.mem) return this.mem; try{ this.mem=JSON.parse(localStorage.getItem(CALM_KEY)||"null"); }catch(e){} if(!this.mem) this.mem={on:false};
+    if(!this.mem.dayV){ this.mem.day=3; this.mem.dayV=2; } return this.mem; },   // mercredi par défaut : la banque est à jour, ce qui n'est pas le cas du vendredi au mardi
   set(p){ Object.assign(this.get(),p); try{ localStorage.setItem(CALM_KEY,JSON.stringify(this.mem)); }catch(e){} },
   on(){ return !!this.get().on; } };
 let calmOpen=false, calmAsk=false, _calmHid=0;
-document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden") _calmHid=Date.now(); else if(_calmHid&&Date.now()-_calmHid>60000){ calmOpen=false; calmAsk=false; } });
+document.addEventListener("visibilitychange",()=>{ if(document.visibilityState==="hidden"){ _calmHid=Date.now(); try{ if(Calm.on()&&S.months[ymNow()]) Calm.set({seen:calmFp()}); }catch(e){} } else if(_calmHid&&Date.now()-_calmHid>60000){ calmOpen=false; calmAsk=false; } });
 function calmWords(){ const w=Calm.on()?["","la moitié","70 %","90 %","au-dessus du prévu"]:LV_TXT_STD; w.forEach((x,i)=>LV_TXT[i]=x); }
 function calmKeep(){ const y=scrollY; render(); scrollTo(0,y); }
 function calmInvite(){ const c=Calm.get(); if(c.on||c.asked||!S.months[ymNow()]) return; Calm.set({asked:true});
   const b=openSheet("Essayer le mode serein ?","Sur ce téléphone seulement. Tes comptes, tes enveloppes et ce que voit l'autre téléphone ne changent pas.<br><br>L'accueil te dit simplement si le mois tient et ce que tu peux dépenser cette semaine. Les soldes restent à portée de main, les alertes qui font sursauter disparaissent, et un point de 5 minutes par semaine remplace les vérifications. Si une action est vraiment nécessaire, elle reste affichée.",[],{},()=>{ Calm.set({on:true}); tab="today"; });
   b.querySelector("#shOk").textContent="Activer"; b.querySelector("#shCancel").textContent="Pas maintenant"; }
 function calmToggle(){ const on=!Calm.on(); Calm.set({on,asked:true}); calmOpen=false; calmAsk=false; render(); toast(on?"Mode serein activé sur ce téléphone":"Mode serein désactivé sur ce téléphone"); }
-function calmSetDay(){ openSheet("Jour du point de la semaine","Choisis un moment où tu es tranquille. 5 minutes suffisent.",[{k:"day",label:"Chaque semaine, le",type:"select",options:[1,2,3,4,5,6,0].map(v=>({v,t:DAYS[v]}))}],{day:Calm.get().day},d=>{ Calm.set({day:+d.day}); }); }
+function calmSetDay(){ openSheet("Jour du point de la semaine","Choisis un moment où tu es tranquille. 5 minutes suffisent.",[{k:"day",label:"Chaque semaine, le",type:"select",options:[1,2,3,4,5,6,0].map(v=>({v,t:DAYS[v]}))}],{day:Calm.get().day},d=>{ Calm.set({day:+d.day,dayV:2}); }); }
 function calmCard(){ const on=Calm.on();
   return `<div class="card"><div class="sec"><span class="eyebrow">Mode serein</span>${on?`<span class="pill t">activé</span>`:""}</div>
     <div class="hint" style="margin:0 0 12px">Un accueil plus simple, moins d'alertes et un point par semaine. Réglage propre à ce téléphone, tes données ne changent pas.</div>
     <div class="btnrow">${on?`<button class="btn sm ghost" onclick="calmSetDay()">Point le ${DAYS[Calm.get().day]}</button>`:""}<button class="btn sm ${on?"ghost":"teal"}" onclick="calmToggle()">${on?"Désactiver":"Activer"}</button></div></div>`; }
-/* ce qui demande vraiment un geste : le reste attend le point de la semaine */
-function calmActions(){
-  const ym=ymNow(); if(!S.months[ym]) return [];
-  const M=month(ym), C=calc(ym), out=[];
-  alerts(ym).forEach(a=>{ const m=/^(over|proj)-(.+)$/.exec(a.id);
-    if(m&&acc(m[2])){ const id=m[2], x=C.A[id]; let need=-x.real-x.over, when="";
-      if(m[1]==="proj"){ const p=project(ym,id), f=(arr,t)=>arr.filter(t).reduce((s,o)=>s+(+o.amount||0),0);
-        const cover=f(M.transfers,t=>!t.done&&t.to===id)+f(M.salary,s=>!s.got&&s.account===id)+f(M.receivables,s=>!s.got&&s.account===id)-f(M.transfers,t=>!t.done&&t.from===id);
-        need=-(p.bad.bal+cover)-x.over; when=` avant le ${p.bad.day}`; }
-      out.push({t:`Prévoir ${eur0(Math.ceil(need))} sur ${accName(id)}${when}`,x:"Cette somme ramène le compte dans le découvert autorisé et évite les frais.",b:"Faire un virement",go:"quickTransfer()"}); return; }
+/* lecture complète du mois : prélèvements, virements, rentrées attendues ET enveloppes qu'il reste à dépenser.
+   acts = à faire pour rester dans le découvert autorisé ; watch = découvert possible mais dans la limite */
+function calmRisks(){
+  const ym=ymNow(), out={acts:[],watch:[]}; if(!S.months[ym]) return out;
+  const M=month(ym), C=calc(ym), hub=hubAccount(), L={}, sur={};
+  S.accounts.forEach(a=>{ const F=forecast(ym,a.id), x=C.A[a.id]; L[a.id]={F,x}; sur[a.id]=x&&x.startSet&&F?Math.max(0,F.lowest):0; });
+  const plan=(id,need)=>{ const amt=Math.ceil(need), best=L=>L.filter(a=>a.id!==id&&sur[a.id]>=amt).sort((a,b)=>sur[b.id]-sur[a.id])[0];
+    const tr=(f,to,step)=>({from:f,to,step,go:`quickTransfer({amount:'${amt}',from:'a:${f}',to:'a:${to}'})`});
+    if(id===hub){ const b=best(S.accounts); if(b){ sur[b.id]-=amt; return tr(b.id,id,0); } }
+    else if(sur[hub]>=amt){ sur[hub]-=amt; return tr(hub,id,0); }
+    else { const b=best(S.accounts.filter(a=>a.id!==hub)); if(b){ sur[b.id]-=amt; return tr(b.id,hub,1); } }
+    if(S.savings.length&&savingsTotal()>=amt) return {sav:true,go:`fromSavings('${id}')`};
+    return null; };
+  const say=(id,amt,P,when)=>!P?{x:"Aucun compte ne peut couvrir cette somme pour l'instant. Réduire une enveloppe est le geste le plus simple.",b:"Ajuster les enveloppes",go:"go('env')"}
+    :P.sav?{x:"Aucun compte ne peut la couvrir, mais ton épargne le peut.",b:"Prendre sur l'épargne",go:P.go}
+    :P.step?{x:`Passe par ${accName(hub)} : d'abord ${eur0(amt)} depuis ${accName(P.from)}, puis vers ${accName(id)}.`,b:"Préparer le 1er virement",go:P.go}
+    :{x:`Depuis ${accName(P.from)}, qui peut le couvrir sans passer à découvert.`,b:"Préparer le virement",go:P.go};
+  S.accounts.forEach(a=>{ const {F,x}=L[a.id]; if(!F||!x||!x.startSet) return; const id=a.id, over=x.over;
+    let need=Math.max(-F.lowest-over,-x.real-over); const p=project(ym,id);
+    if(p&&p.bad){ const f=(arr,t)=>arr.filter(t).reduce((s,o)=>s+(+o.amount||0),0), cover=f(M.transfers,t=>!t.done&&t.to===id)+f(M.salary,s=>!s.got&&s.account===id)+f(M.receivables,s=>!s.got&&s.account===id)-f(M.transfers,t=>!t.done&&t.from===id); need=Math.max(need,-(p.bad.bal+cover)-over); }
+    const bad=F.ev.find(e=>e.bal< -over), neg=F.ev.find(e=>e.bal<0), when=e=>F.now<0&&!e?" dès que possible":e&&e.day?` avant le ${e.day}`:" d'ici la fin du mois";
+    if(need>0.5){ const full=Math.ceil(Math.max(need,-F.lowest)), P0=plan(id,full), amt=P0?full:Math.ceil(need), S_=say(id,amt,P0||plan(id,need)); out.acts.push({t:`Prévoir ${eur0(amt)} sur ${accName(id)}${F.now< -over?" dès que possible":when(bad)}`,x:S_.x,b:S_.b,go:S_.go}); }
+    else if(F.lowest<-0.5){ const amt=Math.ceil(-F.lowest), P=plan(id,amt), S_=say(id,amt,P); out.watch.push({t:`${accName(id)} : découvert possible${when(neg)}`,x:`Au plus bas ${eur0(F.lowest)}, dans la limite autorisée de ${eur0(over)}. ${P?`Prévoir ${eur0(amt)} évite d'éventuels agios. ${S_.x}`:"Ta banque peut facturer des agios sur ce découvert."}`,b:P?S_.b:"Ajuster les enveloppes",go:P?S_.go:"go('env')"}); }
+  });
+  alerts(ym).forEach(a=>{ const td=/^todo-(.+)$/.exec(a.id);
+    if(td&&acc(td[1])&&!out.acts.length){ const p=project(ym,td[1]), tr=M.transfers.some(t=>!t.done&&t.to===td[1]);
+      if(p&&p.bad) out.watch.push({t:tr?`Virement à faire avant le ${p.bad.day}`:`Salaire attendu avant le ${p.bad.day}`,x:tr?`${p.bad.label} passe sur ${accName(td[1])} ce jour-là. Le virement est prévu dans ta liste À faire.`:`${p.bad.label} passe sur ${accName(td[1])} ce jour-là, le compte a besoin de cette rentrée.`}); }
     const pj=/^proj(late|by|soon)-(.+)$/.exec(a.id);
-    if(pj){ const p=projList().find(z=>z.id===pj[2]); if(p) out.push({t:`${p.name} : à réserver`,x:"L'argent est déjà mis de côté. Si c'est fait, marque-le comme acheté.",b:"Voir le projet",go:"go('env')"}); } });
+    if(pj){ const p=projList().find(z=>z.id===pj[2]); if(p) out.acts.push({t:`${p.name} : à réserver`,x:"L'argent est déjà mis de côté. Si c'est fait, marque-le comme acheté.",b:"Voir le projet",go:"go('env')"}); } });
   return out;
 }
+function calmActions(){ return calmRisks().acts; }
+/* date de la dernière saisie : le verdict n'est juste que si les dépenses sont notées */
+function calmStale(M){ const t=today(), now=Date.now(); let last=0; const {y,m}=ymParts(cur);
+  M.ops.forEach(o=>{ last=Math.max(last,+o.ts||new Date(y,m-1,o.day||1,12).getTime()); });
+  const d=last?Math.floor((now-last)/864e5):t-1; return d>=4?d:0; }
 function calmSafeLeft(C){ return Math.max(0,varLeft(C)+Math.min(0,C.reste)); }
 function calmLastKey(){ const d=new Date(); return keyOf(addDays(d,-((d.getDay()-Calm.get().day+7)%7))); }
 function calmDue(){ const c=Calm.get(), k=calmLastKey(); return (c.last||0)<k&&(!!c.last||k===todayKey()); }
@@ -3190,9 +3222,9 @@ function calmAgo(ts){ const m=Math.max(1,Math.round((Date.now()-ts)/60000)); ret
 function calmPeek(){ const p=Calm.get().peek; if(p&&p.fp===calmFp()&&!calmAsk) calmAsk=true; else calmShow(); calmKeep(); }
 function calmShow(){ calmAsk=false; calmOpen=true; Calm.set({peek:{ts:Date.now(),fp:calmFp()}}); }
 function calmHide(){ calmOpen=false; calmAsk=false; calmKeep(); }
-function calmAccounts(){ const C=calc(cur);
+function calmAccounts(bank){ const C=calc(cur);
   return S.accounts.map(a=>{ const F=forecast(cur,a.id); if(!F) return ""; const x=C.A[a.id];
-    return `<div class="calmR"><div class="b" onclick="filFor('${a.id}')"><div class="n">${esc(a.name)}</div><div class="s">${x.startSet?`fin de mois prévue ${eur0(F.end)}`:"solde du 1er à saisir"}</div></div><div class="a">${eur0(F.now)}</div><button onclick="${x.startSet?`editAdjust('${a.id}')`:`editStart('${a.id}')`}">${x.startSet?"Corriger":"Saisir"}</button></div>`; }).join(""); }
+    return `<div class="calmR"><div class="b" onclick="filFor('${a.id}')"><div class="n">${esc(a.name)}</div><div class="s">${!x.startSet?"solde du 1er à saisir":bank?`la banque devrait afficher ${eur(x.bank)}`:`fin de mois prévue ${eur0(F.end)}`}</div></div><div class="a">${eur0(F.now)}</div><button onclick="${x.startSet?`editAdjust('${a.id}')`:`editStart('${a.id}')`}">${x.startSet?"Corriger":"Saisir"}</button></div>`; }).join(""); }
 function calmPeekCard(){
   if(calmOpen) return `<div class="calmPeek"><div class="sec"><span class="eyebrow">Mes comptes</span><button class="act" onclick="calmHide()">Masquer</button></div>${calmAccounts()}</div>`;
   const p=Calm.get().peek;
@@ -3200,21 +3232,29 @@ function calmPeekCard(){
     <div class="btnrow"><button class="btn sm ghost" onclick="calmPeek()">Voir quand même</button><button class="btn sm teal" onclick="calmHide()">C'est bon</button></div></div>`;
   return `<div class="calmPeek"><div class="q">Mes comptes</div><div class="h">Les soldes sont là quand tu en as besoin.</div><button class="btn sm ghost" onclick="calmPeek()">Voir les soldes</button></div>`;
 }
-function calmHero(M,C,acts){
-  const dim=daysIn(cur), t=today(), daysLeft=Math.max(1,dim-t+1), n=Math.min(7,daysLeft), wk=calmSafeLeft(C)*n/daysLeft;
-  const ready=M.steps.depart&&S.accounts.every(a=>M.start[a.id]!=null);
-  const st=acts.length?["act",acts.length>1?`${acts.length} choses à faire, et c'est tout`:"Une chose à faire, et c'est tout",C.reste<-1?`Il manque aussi ${eur0(-C.reste)} pour boucler le mois : on le règle au point de la semaine.`:"Le reste du mois est suivi."]
-    :!ready?["setup","Le mois reste à lancer","Note les soldes du 1er pour que l'appli puisse veiller sur le mois."]
-    :C.reste<-1?["adjust","Un réglage à prévoir",`Il manque ${eur0(-C.reste)} pour boucler le mois. Pas d'urgence : on le règle au point de la semaine.`]
-    :["ok","Le mois tient la route","Les prélèvements et les enveloppes sont prévus jusqu'à la fin du mois."];
+function calmHero(M,C,R){
+  const acts=R.acts, dim=daysIn(cur), t=today(), daysLeft=Math.max(1,dim-t+1), n=Math.min(7,daysLeft), safe=calmSafeLeft(C);
+  const cAvail=Math.min(safe,C.coursesLeft), w=coursesWeek(C,cur), cp=w.left>0?cAvail/w.left:cAvail*n/daysLeft, op=Math.max(0,safe-C.coursesLeft)*n/daysLeft, wk=cp+op;
+  const salOk=M.salary.some(s=>(+s.amount||0)>0), ready=M.steps.depart&&salOk&&S.accounts.every(a=>M.start[a.id]!=null);
+  const wait=M.salary.filter(s=>!s.got&&(+s.amount||0)>0).reduce((a,s)=>a+(+s.amount),0), wt=wait>0?` en comptant le salaire attendu (${eur0(wait)})`:"";
+  const st=acts.length?["act",acts.length>1?`${acts.length} choses à faire, et c'est tout`:"Une chose à faire, et c'est tout",C.reste<-1?`Il manque aussi ${eur0(-C.reste)} pour boucler le mois : on le règle au point de la semaine.`:"Le geste est juste en dessous."]
+    :!ready?["setup","Le mois reste à lancer","Note les soldes du 1er et le salaire pour que l'appli puisse veiller sur le mois."]
+    :C.reste<-1?["adjust","Un réglage à prévoir",`Il manque ${eur0(-C.reste)} pour boucler le mois${wt}. Pas d'urgence : on le règle au point de la semaine.`]
+    :R.watch.length?["watch","Le mois tient, avec un point à surveiller",`Tout est couvert${wt}, le détail est juste en dessous.`]
+    :["ok","Le mois tient la route",`Prélèvements et enveloppes sont couverts jusqu'à la fin du mois${wt}.`];
+  const stale=calmStale(M), nx=w.next&&keyOf(w.next)===todayKey()?"Courses d'aujourd'hui":w.next?`Courses du samedi ${w.next.getDate()}`:"Courses";
   return `<div class="calmH ${st[0]}"><div class="st">${st[1]}</div><div class="sb">${st[2]}</div>
-    <div class="wk"><div class="k">${n<7?`Pour les ${n} derniers jours du mois`:"Pour les 7 prochains jours"}</div><div class="v">${eur0(wk)}</div><div class="n">${wk<1?"pour l'instant, on reste sur l'essentiel":"à dépenser, courses comprises"}</div></div></div>`;
+    <div class="wk"><div class="k">${n<7?`Pour les ${n} derniers jours du mois`:"Pour les 7 prochains jours"}</div><div class="v">${eur0(wk)}</div><div class="n">${wk<1?"pour l'instant, on reste sur l'essentiel":"à dépenser au total"}</div>
+    ${C.courses>0&&wk>=1?`<div class="ch"><div>${nx}<b>${eur0(cp)}</b></div><div>Tout le reste<b>${eur0(op)}</b></div></div>`:""}</div>
+    ${stale?`<div class="fr">Dernière dépense notée il y a ${stale} jours. Ajoute les oublis pour que ce chiffre reste juste.</div>`:""}</div>`;
 }
 function vTodayCalm(M,C){
-  const acts=calmActions(), td=todoCard(M,C), c=Calm.get();
-  const ab=acts.map(a=>`<div class="calmA"><div class="t">${esc(a.t)}</div><div class="x">${esc(a.x)}</div><button class="btn sm teal" onclick="${a.go}">${esc(a.b)}</button></div>`).join("");
+  const R=calmRisks(), acts=R.acts, td=todoCard(M,C), c=Calm.get();
+  const card=(a,k)=>`<div class="calmA"><div class="t">${esc(a.t)}</div><div class="x"${a.go?"":' style="margin-bottom:0"'}>${esc(a.x)}</div>${a.go?`<button class="btn sm ${k}" onclick="${a.go}">${esc(a.b)}</button>`:""}</div>`;
+  const ab=acts.map(a=>card(a,"teal")).join("")+R.watch.map(a=>card(a,"ghost")).join("");
+  const quiet=!acts.length&&!R.watch.length&&c.seen===calmFp()?`<div class="calmS">Rien de nouveau depuis ta dernière visite. Tu peux fermer l'appli tranquille.</div>`:"";
   const pt=calmDue()?`<button class="calmP" onclick="go('point')"><span><b>C'est l'heure du point de la semaine</b><small>5 minutes, et tu es tranquille jusqu'au prochain</small></span><i>›</i></button>`:"";
-  return storeBanner()+calmHero(M,C,acts)+ab+pt+(acts.length&&td.includes("allgood")?"":td)+qa2()+planBanner()+envTiles(C)+calmPeekCard()+moreTiles(M)
+  return storeBanner()+calmHero(M,C,R)+quiet+ab+pt+((acts.length||R.watch.length)&&td.includes("allgood")?"":td)+qa2()+planBanner()+envTiles(C)+calmPeekCard()+moreTiles(M)
     +(pt?"":`<div class="hint" style="text-align:center;padding:0 0 12px"><a href="#" onclick="go('point');return false">Faire le point</a> · prochain rendez-vous ${DAYS[c.day]}</div>`);
 }
 /* ---------- point de la semaine ---------- */
@@ -3223,10 +3263,21 @@ function calmWeek(){ let s=0; const d0=new Date();
     M.ops.forEach(o=>{ if(o.kind==="in"&&o.refundOf) ref[o.refundOf]=(ref[o.refundOf]||0)+(+o.amount||0); });
     M.ops.forEach(o=>{ if(o.kind==="out"&&!o.proj&&(o.day||1)===d.getDate()) s+=opNet(o,ref[o.id]||0); }); }
   return s; }
+/* aperçu du mois suivant, sans créer le mois : uniquement ce qui est déjà connu */
+function calmNext(C){ const nx=ymShift(ymNow(),1), name=MONTHS[ymParts(nx).m-1], inc=C.salaryTot;
+  const fixed=S.recurring.filter(r=>!r.until||nx<=r.until).reduce((a,r)=>a+(+r.amount||0),0), pj=projList().reduce((a,p)=>a+(projDone(p,nx)?0:projContrib(p,nx)),0);
+  const env=(+S.defaults.courses||0)+(capsTotal()||Object.values(S.defaults.securite||{}).reduce((a,v)=>a+(+v||0),0))+(+S.defaults.repasCount||0)*(+S.defaults.repasUnit||0), left=inc-fixed-pj-env;
+  if(!(inc>0)) return "";
+  return `<div class="card"><div class="calmT">Et en ${name} ?</div>
+    <div class="calmR"><div class="b"><div class="n">Salaire habituel</div></div><div class="a">+${eur0(inc)}</div></div>
+    <div class="calmR"><div class="b"><div class="n">Prélèvements</div></div><div class="a">−${eur0(fixed)}</div></div>
+    <div class="calmR"><div class="b"><div class="n">Enveloppes</div></div><div class="a">−${eur0(env)}</div></div>
+    ${pj>0.5?`<div class="calmR"><div class="b"><div class="n">Projets à mettre de côté</div></div><div class="a">−${eur0(pj)}</div></div>`:""}
+    <div class="calmR"><div class="b"><div class="n">${left>=0?"Il devrait rester":"Il manquerait"}</div><div class="s">estimation, hors solde reporté de ${MONTHS[ymParts(ymNow()).m-1]}</div></div><div class="a">${eur0(Math.abs(left))}</div></div></div>`; }
 function calmDone(){ Calm.set({last:todayKey()}); calmOpen=false; calmAsk=false; go("today"); toast(`Point fait. Rendez-vous ${DAYS[Calm.get().day]} prochain`); }
 function vPoint(){
   if(!isCur()) cur=ymNow();
-  const M=month(cur), C=calc(cur), t=today(), dim=daysIn(cur), acts=calmActions(), B=varBudget(C);
+  const M=month(cur), C=calc(cur), t=today(), dim=daysIn(cur), R=calmRisks(), acts=R.acts.concat(R.watch), B=varBudget(C), wd=new Date().getDay();
   const rows=[]; M.salary.filter(s=>!s.got&&(+s.amount||0)>0).forEach(s=>rows.push([null,s.label,"+"+eur0(+s.amount)]));
   M.receivables.filter(s=>!s.got).forEach(s=>rows.push([null,s.label,"+"+eur0(+s.amount)]));
   M.transfers.filter(x=>!x.done).forEach(x=>rows.push([null,`Virement ${accName(x.from)} → ${accName(x.to)}`,eur0(+x.amount)]));
@@ -3235,13 +3286,14 @@ function vPoint(){
   S.categories.filter(c=>c.pocket==="securite"&&(+c.budget||0)>0).forEach(c=>envs.push({n:c.name,s:C.byCat[c.id]||0,b:+c.budget}));
   const over=envs.filter(e=>e.s>e.b+0.5), roomy=envs.filter(e=>e.b-e.s>1).sort((a,b)=>(b.b-b.s)-(a.b-a.s)).slice(0,3);
   let dec=`<div class="calmN">Rien à décider cette semaine. Tu peux fermer l'appli l'esprit tranquille.</div>`;
-  if(acts.length) dec=acts.map(a=>`<div class="calmN" style="margin-bottom:10px"><b>${esc(a.t)}</b><br>${esc(a.x)}</div><button class="btn sm teal" style="margin-bottom:8px" onclick="${a.go}">${esc(a.b)}</button>`).join("");
-  else if(C.reste<-1) dec=`<div class="calmN" style="margin-bottom:10px">Il manque <b>${eur0(-C.reste)}</b> pour boucler le mois.${roomy.length?` Le plus simple : réduire ${roomy.map(e=>`${esc(e.n)} (${eur0(e.b-e.s)} restants)`).join(", ")}.`:""}</div><button class="btn sm teal" onclick="go('env')">Ajuster les enveloppes</button>`;
+  if(acts.length) dec=acts.map(a=>`<div class="calmN" style="margin-bottom:10px"><b>${esc(a.t)}</b><br>${esc(a.x)}</div>${a.go?`<button class="btn sm teal" style="margin-bottom:10px" onclick="${a.go}">${esc(a.b)}</button>`:""}`).join("");
+  if(C.reste<-1) dec=(acts.length?dec:"")+`<div class="calmN" style="margin-bottom:10px">Il manque <b>${eur0(-C.reste)}</b> pour boucler le mois.${roomy.length?` Le plus simple : réduire ${roomy.map(e=>`${esc(e.n)} (${eur0(e.b-e.s)} restants)`).join(", ")}.`:""}</div><button class="btn sm teal" onclick="go('env')">Ajuster les enveloppes</button>`;
   return `<div class="card"><div class="calmT">Ta semaine</div><div class="calmBig">${eur0(calmWeek())}</div><div class="calmN">dépensés sur les 7 derniers jours${B>0?`, pour un repère d'environ ${eur0(B*7/dim)} par semaine`:""}.</div>
     ${C.nPending>0?`<button class="btn sm ghost" style="margin-top:12px" onclick="go('fil')">Pointer ${C.nPending} opération${C.nPending>1?"s":""}</button>`:""}</div>
   <div class="card"><div class="calmT">Les 7 prochains jours</div>${rows.length?rows.map(r=>`<div class="calmR"><div class="b"><div class="n">${esc(r[1])}</div>${r[0]?`<div class="s">le ${r[0]}</div>`:""}</div><div class="a">${r[2]}</div></div>`).join(""):`<div class="calmN">Aucun mouvement prévu.</div>`}</div>
-  <div class="card"><div class="calmT">Tes comptes</div>${calmAccounts()}</div>
+  <div class="card"><div class="calmT">Tes comptes</div><div class="calmN" style="margin-bottom:6px">Compare avec ta banque. Un écart ? Touche Corriger.${[5,6,0,1,2].includes(wd)?" Du vendredi au mardi, ta banque n'affiche pas tout : un écart peut être normal.":""}</div>${calmAccounts(true)}</div>
   <div class="card"><div class="calmT">Les enveloppes</div>${over.length?over.map(e=>`<div class="calmR"><div class="b"><div class="n">${esc(e.n)}</div><div class="s">repris sur la marge du mois</div></div><div class="a">+${eur0(e.s-e.b)}</div></div>`).join(""):`<div class="calmN">Toutes les enveloppes tiennent.</div>`}</div>
+  ${calmNext(C)}
   <div class="card"><div class="calmT">À décider</div>${dec}</div>
   <button class="btn teal" style="margin-bottom:16px" onclick="calmDone()">C'est fait, à ${DAYS[Calm.get().day]} prochain</button>`;
 }
